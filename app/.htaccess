@@ -1,0 +1,4 @@
+# app/ holds config.php and shared includes. It must never be reachable over
+# HTTP. The DocumentRoot pointing at public/ already makes this impossible in
+# a correctly configured server; this file is a second layer of protection.
+Require all denied

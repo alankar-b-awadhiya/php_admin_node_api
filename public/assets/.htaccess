@@ -1,0 +1,5 @@
+# Static assets only — never execute PHP from inside this folder,
+# even if a stray .php file ever ends up here.
+<FilesMatch "\.(php|phtml|php\d)$">
+  Require all denied
+</FilesMatch>

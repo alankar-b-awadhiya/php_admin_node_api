@@ -1,0 +1,19 @@
+# ==============================================================================
+# Project root .htaccess
+#
+# Best practice is still to point the Apache/vhost DocumentRoot at "public/"
+# directly. But on local dev (XAMPP/WAMP, e.g. http://localhost/admin_panel_prod)
+# or shared hosting where you can't change the DocumentRoot, this transparently
+# routes every request into public/ instead, so app/ (config + includes) stays
+# unreachable while the site still works at the project-root URL.
+# ==============================================================================
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# If mod_rewrite isn't available, fail closed (deny everything) rather than
+# risk exposing app/ — safer than silently serving the wrong folder.
+<IfModule !mod_rewrite.c>
+  Require all denied
+</IfModule>
