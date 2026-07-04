@@ -11,6 +11,7 @@ $navItems = [
     ['key' => 'rbac-resources',   'href' => 'rbac-resources.php',   'label' => 'Master Resources',  'icon' => 'box'],
     ['key' => 'rbac-permissions', 'href' => 'rbac-permissions.php', 'label' => 'Permissions',       'icon' => 'key'],
     ['key' => 'notification',     'href' => 'notification.php',     'label' => 'Notifications',      'icon' => 'bell'],
+    ['key' => 'webpush',          'href' => 'webpush.php',          'label' => 'Web Push',           'icon' => 'device'],
     ['key' => 'sessions',         'href' => 'sessions.php',         'label' => 'My Sessions',        'icon' => 'device'],
     ['key' => 'profile',          'href' => 'profile.php',          'label' => 'My Profile',         'icon' => 'user'],
 ];

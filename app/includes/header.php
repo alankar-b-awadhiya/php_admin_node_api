@@ -21,6 +21,7 @@ $activeNav = $activeNav ?? '';
 <script>
   window.API_BASE_URL = <?= json_encode(API_BASE_URL) ?>;
   window.APP_NAME = <?= json_encode(APP_NAME) ?>;
+  window.VAPID_PUBLIC_KEY = <?= json_encode(VAPID_PUBLIC_KEY) ?>;
 </script>
 </head>
 <body>
