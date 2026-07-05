@@ -83,6 +83,39 @@ const Admin = (function () {
     del: (path) => request(path, { method: 'DELETE' }),
   };
 
+  /**
+   * Multipart form upload (file inputs). Unlike request(), this does NOT set
+   * Content-Type: application/json or JSON.stringify the body — the browser
+   * sets the correct multipart boundary for a FormData body automatically.
+   * Shares the same cookie-based auth + one-time silent-refresh-and-retry
+   * behavior as request().
+   */
+  async function requestForm(path, formData, { method = 'POST', retry = true } = {}) {
+    let res;
+    try {
+      res = await fetch(BASE + path, { method, credentials: 'include', body: formData });
+    } catch (e) {
+      throw new ApiError(0, 'Could not reach the API. Check your connection or the API_BASE_URL in config.php.');
+    }
+
+    if (res.status === 401 && retry) {
+      const ok = await silentRefresh();
+      if (ok) return requestForm(path, formData, { method, retry: false });
+      goToLogin();
+      throw new ApiError(401, 'Session expired');
+    }
+
+    let json = null;
+    try { json = await res.json(); } catch (e) { /* empty/non-JSON body */ }
+
+    if (!res.ok || (json && json.success === false)) {
+      const message = (json && json.message) || `Request failed (${res.status})`;
+      throw new ApiError(res.status, message, json && json.errors);
+    }
+    return json || { success: true, data: null };
+  }
+  api.uploadForm = (path, formData) => requestForm(path, formData);
+
   // ---- Auth guard --------------------------------------------------------
   let cachedMe = null;
 

@@ -1,3 +1,12 @@
+# Custom
+*.zip
+uploads/
+
+# ==========================
+# Custom Folders .{any_folder_name}/
+# ==========================
+**/.*/
+
 /.env
 *.log
 .DS_Store
