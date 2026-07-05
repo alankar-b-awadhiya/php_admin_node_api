@@ -10,9 +10,12 @@ $navItems = [
     ['key' => 'usertypes',        'href' => 'usertypes.php',        'label' => 'Usertypes',         'icon' => 'tag'],
     ['key' => 'rbac-resources',   'href' => 'rbac-resources.php',   'label' => 'Master Resources',  'icon' => 'box'],
     ['key' => 'rbac-permissions', 'href' => 'rbac-permissions.php', 'label' => 'Permissions',       'icon' => 'key'],
+    ['key' => 'categories',       'href' => 'categories.php',       'label' => 'Categories',        'icon' => 'layers'],
+    ['key' => 'media',            'href' => 'media.php',            'label' => 'Media Library',      'icon' => 'folder'],
     ['key' => 'notification',     'href' => 'notification.php',     'label' => 'Notifications',      'icon' => 'bell'],
     ['key' => 'webpush',          'href' => 'webpush.php',          'label' => 'Web Push',           'icon' => 'device'],
     ['key' => 'sessions',         'href' => 'sessions.php',         'label' => 'My Sessions',        'icon' => 'device'],
+    ['key' => 'settings',         'href' => 'settings.php',         'label' => 'Site Settings',      'icon' => 'gear'],
     ['key' => 'profile',          'href' => 'profile.php',          'label' => 'My Profile',         'icon' => 'user'],
 ];
 
@@ -27,6 +30,9 @@ function nav_icon($name) {
         'device' => '<path d="M3 3h14v10H3V3Zm-1 12h16v2H2v-2ZM8 6h4v1H8V6Z"/>',
         'user'   => '<path d="M10 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0 9c-4.4 0-7 2.2-7 5v2h14v-2c0-2.8-2.6-5-7-5Z"/>',
         'bell'   => '<path d="M10 1.5a1.4 1.4 0 0 0-1.4 1.4v.6C6 4.1 4.4 6.1 4.4 8.6v3.3L2.7 14.5c-.3.5.1 1.1.7 1.1h13.2c.6 0 1-.6.7-1.1l-1.7-2.6V8.6c0-2.5-1.6-4.5-4.2-5.1v-.6A1.4 1.4 0 0 0 10 1.5Zm0 17a2.2 2.2 0 0 0 2.2-2H7.8A2.2 2.2 0 0 0 10 18.5Z"/>',
+        'layers' => '<path d="M10 1.5 18 6l-8 4.5L2 6l8-4.5Zm0 8.6 6.4-3.6L18 7.4v.1L10 12 2 7.5v-.1l1.6-.9L10 10.1Zm0 4.4 6.4-3.6L18 12v.1L10 16.5 2 12v-.1l1.6-.9L10 14.5Z"/>',
+        'folder' => '<path d="M2 4a1 1 0 0 1 1-1h4.4l1.6 2H17a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4Z"/>',
+        'gear'   => '<path d="M10 6.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm7.4 3.2c0 .4 0 .8-.1 1.1l1.6 1.3-1.6 2.7-1.9-.6c-.6.5-1.3.9-2 1.1L13 18h-3l-.4-2.3c-.7-.2-1.4-.6-2-1.1l-1.9.6-1.6-2.7 1.6-1.3a6 6 0 0 1 0-2.2L4.1 7.7l1.6-2.7 1.9.6c.6-.5 1.3-.9 2-1.1L10 2h3l.4 2.3c.7.2 1.4.6 2 1.1l1.9-.6 1.6 2.7-1.6 1.3c.1.3.1.7.1 1.1Z" stroke="currentColor" stroke-width="0.4"/>',
     ];
     return $icons[$name] ?? '';
 }
