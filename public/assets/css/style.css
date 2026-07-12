@@ -696,5 +696,5 @@ tbody tr:last-child td { border-bottom: none; }
 .upload-or-divider { font-size: 12.5px; color: var(--text-faint); font-weight: 600; margin: 16px 0 10px; text-align: center; }
 input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13px; background: var(--paper); }
 
-
-
+/* ---------- Feedback page: inline star rating ---------- */
+.fb-stars { display: inline-flex; gap: 1px; vertical-align: middle; }

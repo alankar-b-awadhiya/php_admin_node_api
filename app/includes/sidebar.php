@@ -14,6 +14,7 @@ $navItems = [
     ['key' => 'media',            'href' => 'media.php',            'label' => 'Media Library',      'icon' => 'folder'],
     ['key' => 'blogs',            'href' => 'blogs.php',            'label' => 'Blogs',              'icon' => 'blog'],
     ['key' => 'enquiries',        'href' => 'enquiries.php',        'label' => 'Enquiries',          'icon' => 'enquiry'],
+    ['key' => 'feedback',         'href' => 'feedback.php',         'label' => 'Feedback',           'icon' => 'star'],
     ['key' => 'clientele',        'href' => 'clientele.php',        'label' => 'Clientele',          'icon' => 'clientele'],
     ['key' => 'notification',     'href' => 'notification.php',     'label' => 'Notifications',      'icon' => 'bell'],
     ['key' => 'webpush',          'href' => 'webpush.php',          'label' => 'Web Push',           'icon' => 'device'],
@@ -37,6 +38,7 @@ function nav_icon($name) {
         'folder' => '<path d="M2 4a1 1 0 0 1 1-1h4.4l1.6 2H17a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4Z"/>',
         'blog'   => '<path d="M4 2h9l4 4v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm8 1.5V6h2.5L12 3.5ZM5 9h9v1.3H5V9Zm0 3h9v1.3H5V12Zm0 3h6v1.3H5V15Z"/>',
         'enquiry' => '<path d="M2.5 5.5h15v9a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-9Zm.4 0L10 10.6l7.1-5.1H2.9Z"/>',
+        'star' => '<path d="M10 1.7l2.7 5.5 6.1.9-4.4 4.3 1 6.1L10 15.4l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L10 1.7Z"/>',
         'clientele' => '<path d="M4 2h4v4H4V2Zm6 0h6v4h-6V2ZM4 8h4v4H4V8Zm6 0h6v4h-6V8ZM4 14h4v4H4v-4Zm6 0h6v4h-6v-4Z"/>',
         'gear'   => '<path d="M10 6.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm7.4 3.2c0 .4 0 .8-.1 1.1l1.6 1.3-1.6 2.7-1.9-.6c-.6.5-1.3.9-2 1.1L13 18h-3l-.4-2.3c-.7-.2-1.4-.6-2-1.1l-1.9.6-1.6-2.7 1.6-1.3a6 6 0 0 1 0-2.2L4.1 7.7l1.6-2.7 1.9.6c.6-.5 1.3-.9 2-1.1L10 2h3l.4 2.3c.7.2 1.4.6 2 1.1l1.9-.6 1.6 2.7-1.6 1.3c.1.3.1.7.1 1.1Z" stroke="currentColor" stroke-width="0.4"/>',
     ];
