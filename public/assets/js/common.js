@@ -114,7 +114,7 @@ const Admin = (function () {
     }
     return json || { success: true, data: null };
   }
-  api.uploadForm = (path, formData) => requestForm(path, formData);
+  api.uploadForm = (path, formData, { method = 'POST' } = {}) => requestForm(path, formData, { method });
 
   // ---- Auth guard --------------------------------------------------------
   let cachedMe = null;
