@@ -112,7 +112,7 @@
         page: state.page,
         perPage: state.perPage,
       }));
-      rows = res.data.clients || res.data.items || (Array.isArray(res.data) ? res.data : []) || [];
+      rows = res.data.clientele || res.data.clients || res.data.items || (Array.isArray(res.data) ? res.data : []) || [];
       renderTable();
       renderPagination(res.meta && res.meta.pagination);
       document.getElementById('clientsCount').textContent =
