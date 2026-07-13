@@ -114,10 +114,31 @@ p { margin: 0 0 0.5em; color: var(--text-muted); }
 .app-content { padding: 26px; flex: 1; }
 
 .icon-btn {
-  display: none; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--line);
   background: var(--paper); color: var(--text); cursor: pointer;
 }
+
+/* Smooth width transition for collapse/expand */
+.sidebar { transition: width 0.18s ease, left 0.18s ease; }
+
+/* Collapsed (desktop) sidebar: show icons only */
+.sidebar.collapsed {
+  width: 72px; overflow: visible;
+}
+.sidebar.collapsed .sidebar-brand-name,
+.sidebar.collapsed .sidebar-link span,
+.sidebar.collapsed .sidebar-footer-label,
+.sidebar.collapsed .sidebar-footer-url {
+  display: none;
+}
+.sidebar.collapsed .sidebar-brand { justify-content: center; }
+.sidebar.collapsed .sidebar-brand-mark { width: 36px; height: 36px; }
+.sidebar.collapsed .sidebar-nav { padding-left: 8px; padding-right: 8px; }
+.sidebar.collapsed .sidebar-link { justify-content: center; padding-left: 8px; padding-right: 8px; }
+.sidebar.collapsed .sidebar-link svg { margin: 0; }
+.sidebar .sidebar-link span { transition: opacity 0.12s ease; }
+.sidebar.collapsed .sidebar-link span { opacity: 0; }
 
 /* ---------- Page header / toolbar ---------- */
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
