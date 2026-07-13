@@ -4,24 +4,32 @@
  * is required. Grouped to match the API domains under src/api/v1:
  *   auth (session/profile), master-users, master-usertypes, master-rbac
  */
-$navItems = [
-    ['key' => 'dashboard',        'href' => 'dashboard.php',        'label' => 'Dashboard',        'icon' => 'grid'],
-    ['key' => 'users',            'href' => 'users.php',            'label' => 'Master Users',      'icon' => 'users'],
-    ['key' => 'usertypes',        'href' => 'usertypes.php',        'label' => 'Usertypes',         'icon' => 'tag'],
-    ['key' => 'rbac-resources',   'href' => 'rbac-resources.php',   'label' => 'Master Resources',  'icon' => 'box'],
-    ['key' => 'rbac-permissions', 'href' => 'rbac-permissions.php', 'label' => 'Permissions',       'icon' => 'key'],
-    ['key' => 'categories',       'href' => 'categories.php',       'label' => 'Categories',        'icon' => 'layers'],
-    ['key' => 'media',            'href' => 'media.php',            'label' => 'Media Library',      'icon' => 'folder'],
-    ['key' => 'products',         'href' => 'products.php',         'label' => 'Products',           'icon' => 'package'],
-    ['key' => 'blogs',            'href' => 'blogs.php',            'label' => 'Blogs',              'icon' => 'blog'],
-    ['key' => 'enquiries',        'href' => 'enquiries.php',        'label' => 'Enquiries',          'icon' => 'enquiry'],
-    ['key' => 'feedback',         'href' => 'feedback.php',         'label' => 'Feedback',           'icon' => 'star'],
-    ['key' => 'clientele',        'href' => 'clientele.php',        'label' => 'Clientele',          'icon' => 'clientele'],
-    ['key' => 'notification',     'href' => 'notification.php',     'label' => 'Notifications',      'icon' => 'bell'],
-    ['key' => 'webpush',          'href' => 'webpush.php',          'label' => 'Web Push',           'icon' => 'device'],
-    ['key' => 'sessions',         'href' => 'sessions.php',         'label' => 'My Sessions',        'icon' => 'device'],
-    ['key' => 'settings',         'href' => 'settings.php',         'label' => 'Site Settings',      'icon' => 'gear'],
-    ['key' => 'profile',          'href' => 'profile.php',          'label' => 'My Profile',         'icon' => 'user'],
+$navGroups = [
+  ['key' => 'main', 'title' => 'Main', 'items' => [
+    ['key' => 'dashboard', 'href' => 'dashboard.php', 'label' => 'Dashboard', 'icon' => 'grid'],
+    ['key' => 'users', 'href' => 'users.php', 'label' => 'Master Users', 'icon' => 'users'],
+    ['key' => 'usertypes', 'href' => 'usertypes.php', 'label' => 'Usertypes', 'icon' => 'tag'],
+    ['key' => 'rbac-resources', 'href' => 'rbac-resources.php', 'label' => 'Master Resources', 'icon' => 'box'],
+    ['key' => 'rbac-permissions', 'href' => 'rbac-permissions.php', 'label' => 'Permissions', 'icon' => 'key'],
+  ]],
+  ['key' => 'content', 'title' => 'Content', 'items' => [
+    ['key' => 'categories', 'href' => 'categories.php', 'label' => 'Categories', 'icon' => 'layers'],
+    ['key' => 'media', 'href' => 'media.php', 'label' => 'Media Library', 'icon' => 'folder'],
+    ['key' => 'products', 'href' => 'products.php', 'label' => 'Products', 'icon' => 'package'],
+    ['key' => 'blogs', 'href' => 'blogs.php', 'label' => 'Blogs', 'icon' => 'blog'],
+    ['key' => 'clientele', 'href' => 'clientele.php', 'label' => 'Clientele', 'icon' => 'clientele'],
+  ]],
+  ['key' => 'support', 'title' => 'Support', 'items' => [
+    ['key' => 'enquiries', 'href' => 'enquiries.php', 'label' => 'Enquiries', 'icon' => 'enquiry'],
+    ['key' => 'feedback', 'href' => 'feedback.php', 'label' => 'Feedback', 'icon' => 'star'],
+    ['key' => 'notification', 'href' => 'notification.php', 'label' => 'Notifications', 'icon' => 'bell'],
+    ['key' => 'webpush', 'href' => 'webpush.php', 'label' => 'Web Push', 'icon' => 'device'],
+  ]],
+  ['key' => 'settings', 'title' => 'Settings', 'items' => [
+    ['key' => 'sessions', 'href' => 'sessions.php', 'label' => 'My Sessions', 'icon' => 'device'],
+    ['key' => 'settings', 'href' => 'settings.php', 'label' => 'Site Settings', 'icon' => 'gear'],
+    ['key' => 'profile', 'href' => 'profile.php', 'label' => 'My Profile', 'icon' => 'user'],
+  ]],
 ];
 
 function nav_icon($name) {
@@ -52,15 +60,24 @@ function nav_icon($name) {
     <span class="sidebar-brand-mark">A</span>
     <span class="sidebar-brand-name"><?= htmlspecialchars(APP_NAME) ?></span>
   </div>
-  <nav class="sidebar-nav">
-    <?php foreach ($navItems as $item): ?>
-      <a href="<?= htmlspecialchars($item['href']) ?>"
-         class="sidebar-link <?= $activeNav === $item['key'] ? 'is-active' : '' ?>">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><?= nav_icon($item['icon']) ?></svg>
-        <span><?= htmlspecialchars($item['label']) ?></span>
-      </a>
-    <?php endforeach; ?>
-  </nav>
+    <nav class="sidebar-nav">
+      <?php foreach ($navGroups as $group): ?>
+        <div class="sidebar-group" data-group="<?= htmlspecialchars($group['key']) ?>">
+          <button class="sidebar-group-header" type="button" aria-expanded="true" title="<?= htmlspecialchars($group['title']) ?>">
+            <span class="group-title"><?= htmlspecialchars($group['title']) ?></span>
+            <svg class="group-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="sidebar-group-body">
+            <?php foreach ($group['items'] as $item): ?>
+              <a href="<?= htmlspecialchars($item['href']) ?>" class="sidebar-link <?= $activeNav === $item['key'] ? 'is-active' : '' ?>">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><?= nav_icon($item['icon']) ?></svg>
+                <span><?= htmlspecialchars($item['label']) ?></span>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </nav>
   <div class="sidebar-footer">
     <span class="sidebar-footer-label">API</span>
     <code class="sidebar-footer-url"><?= htmlspecialchars(parse_url(API_BASE_URL, PHP_URL_HOST) ?: API_BASE_URL) ?></code>

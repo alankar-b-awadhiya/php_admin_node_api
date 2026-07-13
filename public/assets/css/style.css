@@ -40,6 +40,18 @@
   font-size: 15px;
 }
 
+  /* Theme variables (user-customizable). Legacy names inherit from these. */
+  :root {
+    --primary: #4f5dff;
+    --primary-dark: #3c47d6;
+    --primary-tint: #eef0ff;
+    --secondary: #7c3aed;
+    --secondary-tint: #f1e9fe;
+  }
+
+  /* Backwards compatibility: make existing color tokens derive from theme variables */
+  :root { --indigo: var(--primary); --indigo-dark: var(--primary-dark); --indigo-tint: var(--primary-tint); --violet: var(--secondary); --violet-tint: var(--secondary-tint); }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -139,6 +151,43 @@ p { margin: 0 0 0.5em; color: var(--text-muted); }
 .sidebar.collapsed .sidebar-link svg { margin: 0; }
 .sidebar .sidebar-link span { transition: opacity 0.12s ease; }
 .sidebar.collapsed .sidebar-link span { opacity: 0; }
+
+/* ---------- Sidebar group (collapsible sections) ---------- */
+.sidebar-group { border-top: 1px solid rgba(255,255,255,0.03); }
+.sidebar-group-header {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; background: transparent; color: #b7bdd0; border: none; cursor: pointer; font-weight: 700; font-size: 12px;
+}
+.sidebar-group-header .group-title { text-transform: uppercase; font-size: 11px; color: #9fa7bf; }
+.sidebar-group-body { display: block; padding: 6px 6px 12px 6px; }
+.sidebar-group.collapsed .sidebar-group-body { display: none; }
+.sidebar-group-header .group-chevron { opacity: 0.7; transform: rotate(0deg); transition: transform 0.14s ease; }
+.sidebar-group.collapsed .sidebar-group-header .group-chevron { transform: rotate(-90deg); }
+
+/* When sidebar is collapsed, hide group text and show chevron centered as an icon with tooltip */
+.sidebar.collapsed .sidebar-group-header { justify-content: center; padding: 10px 6px; position: relative; }
+.sidebar.collapsed .sidebar-group-header .group-title { display: none; }
+.sidebar.collapsed .sidebar-group-header .group-chevron { opacity: 1; transform: rotate(0deg); }
+.sidebar.collapsed .sidebar-group-header[title]:hover::after {
+  content: attr(title);
+  position: absolute; left: 72px; top: 50%; transform: translateY(-50%);
+  background: var(--paper); color: var(--text); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); white-space: nowrap; box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Theme panel (right drawer) ---------- */
+.theme-panel {
+  position: fixed; right: -360px; top: 0; height: 100vh; width: 360px; background: var(--paper); box-shadow: -12px 0 30px rgba(18,21,28,0.12); z-index: 160; transition: right 0.18s ease; padding: 18px; display: flex; flex-direction: column;
+}
+.theme-panel.is-open { right: 0; }
+.theme-panel h4 { margin: 0 0 8px; font-size: 15px; }
+.theme-controls { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.color-row { display: flex; align-items: center; gap: 10px; }
+.color-row input[type=color] { width: 44px; height: 32px; padding: 0; border: none; background: none; cursor: pointer; }
+.color-row .label { font-size: 13px; color: var(--text-muted); min-width: 90px; }
+.theme-preview { margin-top: 10px; border-radius: 10px; padding: 12px; background: var(--porcelain); border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.theme-snippet { margin-top: 12px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; padding: 10px; background: #f6f7fb; border-radius: 8px; border: 1px solid var(--line); white-space: pre-wrap; }
+.theme-actions { margin-top: 12px; display:flex; gap:8px; }
+.theme-close { position: absolute; left: 8px; top: 8px; background: transparent; border: none; cursor: pointer; }
 
 /* ---------- Page header / toolbar ---------- */
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -294,6 +343,36 @@ tbody tr:last-child td { border-bottom: none; }
 .text-right { text-align: right; }
 .mt-0 { margin-top: 0; }
 .flex-gap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- Modern scrollbar (global) ---------- */
+:root {
+  --scroll-track: rgba(255,255,255,0.03);
+  --scroll-thumb-start: rgba(79,93,255,0.95);
+  --scroll-thumb-end: rgba(124,58,237,0.95);
+  --scroll-thumb-hover: rgba(79,93,255,1);
+}
+
+/* WebKit browsers */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; margin: 6px 0; border-radius: 999px; }
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--scroll-thumb-start), var(--scroll-thumb-end));
+  border-radius: 999px; border: 2px solid rgba(0,0,0,0.12);
+}
+*::-webkit-scrollbar-thumb:hover { filter: brightness(1.02); }
+
+/* Sidebar specific tweaks (dark background) */
+.sidebar::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(255,255,255,0.03);
+}
+
+/* Firefox */
+html { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb-start) transparent; }
+
+/* Accessibility: ensure contrast when user prefers reduced motion/contrast */
+@media (prefers-contrast: more) {
+  *::-webkit-scrollbar-thumb { border-color: rgba(0,0,0,0.22); }
+}
 
 /* ==========================================================================
    Extended components — search field, icon actions, count pills, tab strip,

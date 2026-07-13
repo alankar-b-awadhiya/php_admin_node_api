@@ -321,4 +321,96 @@ document.addEventListener('DOMContentLoaded', () => {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => Admin.logout());
   }
+
+  // ------ Sidebar groups: restore + persist open/collapse state -----
+  try {
+    const groups = document.querySelectorAll('.sidebar-group');
+    groups.forEach((g) => {
+      const key = g.dataset.group;
+      const header = g.querySelector('.sidebar-group-header');
+      if (!header) return;
+      const collapsed = window.localStorage && localStorage.getItem('sidebarGroup_' + key) === '1';
+      if (collapsed) {
+        g.classList.add('collapsed');
+        header.setAttribute('aria-expanded', 'false');
+      }
+      header.addEventListener('click', () => {
+        const isCollapsed = g.classList.toggle('collapsed');
+        header.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+        try { localStorage.setItem('sidebarGroup_' + key, isCollapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+      });
+    });
+  } catch (e) { /* ignore */ }
+
+  // ------ Theme panel: color pickers, apply and persist theme vars -----
+  (function initThemePanel() {
+    const themeToggle = document.getElementById('themeToggle');
+    const themePanel = document.getElementById('themePanel');
+    const themeClose = document.getElementById('themeClose');
+    const primaryInput = document.getElementById('primaryColor');
+    const secondaryInput = document.getElementById('secondaryColor');
+    const snippetEl = document.getElementById('themeSnippet');
+    const copyBtn = document.getElementById('copyThemeBtn');
+    const resetBtn = document.getElementById('resetThemeBtn');
+
+    function applyTheme(primary, secondary, persist = true) {
+      if (!primary || !secondary) return;
+      document.documentElement.style.setProperty('--primary', primary);
+      document.documentElement.style.setProperty('--primary-dark', primary);
+      document.documentElement.style.setProperty('--primary-tint', primary + '11');
+      document.documentElement.style.setProperty('--secondary', secondary);
+      document.documentElement.style.setProperty('--secondary-tint', secondary + '11');
+      if (snippetEl) snippetEl.textContent = `:root { --primary: ${primary}; --secondary: ${secondary}; }`;
+      if (persist) {
+        try { localStorage.setItem('theme_primary', primary); localStorage.setItem('theme_secondary', secondary); } catch (e) { /* ignore */ }
+      }
+    }
+
+    // Load saved theme
+    try {
+      const savedPrimary = localStorage.getItem('theme_primary');
+      const savedSecondary = localStorage.getItem('theme_secondary');
+      if (savedPrimary && savedSecondary) {
+        if (primaryInput) primaryInput.value = savedPrimary;
+        if (secondaryInput) secondaryInput.value = savedSecondary;
+        applyTheme(savedPrimary, savedSecondary, false);
+      }
+    } catch (e) { /* ignore */ }
+
+    if (primaryInput) primaryInput.addEventListener('change', (e) => {
+      const p = e.target.value;
+      const s = secondaryInput ? secondaryInput.value : '#7c3aed';
+      applyTheme(p, s, true);
+    });
+    if (secondaryInput) secondaryInput.addEventListener('change', (e) => {
+      const s = e.target.value;
+      const p = primaryInput ? primaryInput.value : '#4f5dff';
+      applyTheme(p, s, true);
+    });
+
+    if (themeToggle && themePanel) {
+      themeToggle.addEventListener('click', () => {
+        const open = themePanel.classList.toggle('is-open');
+        themePanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+      });
+    }
+    if (themeClose && themePanel) {
+      themeClose.addEventListener('click', () => { themePanel.classList.remove('is-open'); themePanel.setAttribute('aria-hidden', 'true'); });
+    }
+
+    if (copyBtn && snippetEl) {
+      copyBtn.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(snippetEl.textContent); Admin.toast('Theme CSS copied'); } catch (e) { Admin.toast('Could not copy to clipboard', 'error'); }
+      });
+    }
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        try { localStorage.removeItem('theme_primary'); localStorage.removeItem('theme_secondary'); } catch (e) {}
+        if (primaryInput) primaryInput.value = '#4f5dff';
+        if (secondaryInput) secondaryInput.value = '#7c3aed';
+        applyTheme('#4f5dff', '#7c3aed', true);
+        Admin.toast('Theme reset');
+      });
+    }
+  })();
 });
