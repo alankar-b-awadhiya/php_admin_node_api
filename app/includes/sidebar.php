@@ -19,6 +19,15 @@ $navGroups = [
     ['key' => 'blogs', 'href' => 'blogs.php', 'label' => 'Blogs', 'icon' => 'blog'],
     ['key' => 'clientele', 'href' => 'clientele.php', 'label' => 'Clientele', 'icon' => 'clientele'],
   ]],
+  ['key' => 'social', 'title' => 'Social Media', 'items' => [
+    ['key' => 'social-clients', 'href' => 'social-clients.php', 'label' => 'Clients', 'icon' => 'clientele'],
+    ['key' => 'social-accounts', 'href' => 'social-accounts.php', 'label' => 'Connected Accounts', 'icon' => 'device'],
+    ['key' => 'posts', 'href' => 'posts.php', 'label' => 'Posts', 'icon' => 'blog'],
+    ['key' => 'social-inbox', 'href' => 'social-inbox.php', 'label' => 'Inbox', 'icon' => 'bell'],
+    ['key' => 'social-comments', 'href' => 'social-comments.php', 'label' => 'Comments', 'icon' => 'enquiry'],
+    ['key' => 'social-webhooks', 'href' => 'social-webhooks.php', 'label' => 'Webhook Events', 'icon' => 'key'],
+    ['key' => 'social-platforms', 'href' => 'social-platforms.php', 'label' => 'Platforms', 'icon' => 'shield'],
+  ]],
   ['key' => 'support', 'title' => 'Support', 'items' => [
     ['key' => 'enquiries', 'href' => 'enquiries.php', 'label' => 'Enquiries', 'icon' => 'enquiry'],
     ['key' => 'feedback', 'href' => 'feedback.php', 'label' => 'Feedback', 'icon' => 'star'],
