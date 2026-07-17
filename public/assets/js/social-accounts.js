@@ -11,7 +11,8 @@
  * ---------------------------------------------------------------------------
  *
  *   GET    API.clients                - social clients, for the selector (reuses /social-clients)
- *   GET    API.connect(platform)      - ?social_client_id= -> { authUrl } for OAuth platforms
+ *   GET    API.oauthApps(platform)     - active social_oauth_apps for this platform (Connect modal's app picker)
+ *   GET    API.connect(platform)      - ?social_client_id=&oauth_app_id= -> { authUrl } for OAuth platforms
  *   POST   API.manualConnect          - { social_client_id, platform, credentials } for whatsapp/bluesky
  *   GET    API.list                   - ?social_client_id=&platform=&status=
  *   POST   API.refreshToken(id)       - re-run the platform's refresh grant
@@ -28,6 +29,7 @@
 (function () {
   const API = {
     clients: '/social-clients',
+    oauthApps: (platform) => `/social-accounts/oauth-apps/${platform}`,
     connect: (platform) => `/social-accounts/connect/${platform}`,
     manualConnect: '/social-accounts/manual-connect',
     list: '/social-accounts',
@@ -404,15 +406,71 @@
         if (PLATFORMS[platform].manual) {
           openManualConnectForm(platform);
         } else {
-          beginOAuthConnect(platform);
+          resolveOauthAppAndConnect(platform);
         }
       });
     });
   }
 
-  async function beginOAuthConnect(platform) {
+  // ---- Connect: OAuth app picker (only shown when a platform has 2+ apps) --
+
+  async function resolveOauthAppAndConnect(platform) {
+    let apps = [];
     try {
-      const res = await Admin.api.get(API.connect(platform) + Admin.qs({ social_client_id: state.socialClientId }));
+      const res = await Admin.api.get(API.oauthApps(platform));
+      apps = res.data.apps || [];
+    } catch (err) {
+      Admin.toastError(err);
+      return;
+    }
+
+    if (apps.length <= 1) {
+      // 0 apps: let beginOAuthConnect's own error surface ("no active OAuth
+      // app configured..."). 1 app: nothing to pick, connect straight away.
+      beginOAuthConnect(platform, apps[0]?.id);
+      return;
+    }
+
+    openOauthAppPicker(platform, apps);
+  }
+
+  function openOauthAppPicker(platform, apps) {
+    const p = PLATFORMS[platform];
+    Admin.openModal(`
+      <div class="modal-header"><h3>Connect ${Admin.escapeHtml(p.label)}</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:14px;">This platform has multiple OAuth apps configured - pick which one to connect through.</p>
+        <div class="oauth-app-list">
+          ${apps.map((a) => `
+            <button type="button" class="oauth-app-row" data-app-id="${a.id}">
+              <span>
+                <strong>${Admin.escapeHtml(a.appLabel)}</strong>
+                ${a.isDefault ? '<span class="badge-outline" style="margin-left:8px;">Default</span>' : ''}
+              </span>
+              <span class="badge-outline">${Admin.escapeHtml(a.environment)}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-act="back">Back</button>
+        <button type="button" class="btn btn-secondary" data-act="close">Cancel</button>
+      </div>
+    `);
+    const backdrop = document.getElementById('modalBackdrop');
+    backdrop.querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+    backdrop.querySelector('[data-act="back"]')?.addEventListener('click', openPlatformGrid);
+    backdrop.querySelectorAll('.oauth-app-row').forEach((row) => {
+      row.addEventListener('click', () => beginOAuthConnect(platform, Number(row.dataset.appId)));
+    });
+  }
+
+  async function beginOAuthConnect(platform, oauthAppId) {
+    try {
+      const res = await Admin.api.get(API.connect(platform) + Admin.qs({
+        social_client_id: state.socialClientId,
+        oauth_app_id: oauthAppId || '',
+      }));
       const authUrl = res.data.authUrl;
       if (!authUrl) throw new Error('No authorize URL returned');
       window.location.href = authUrl;

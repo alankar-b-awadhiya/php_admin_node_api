@@ -25,6 +25,7 @@
     status: (id) => `/social-platforms/${id}/status`,
     apps: (id) => `/social-platforms/${id}/oauth-apps`,
     app: (appId) => `/social-platforms/oauth-apps/${appId}`,
+    appDefault: (appId) => `/social-platforms/oauth-apps/${appId}/default`,
   };
 
   const AUTH_TYPE_LABELS = { oauth2: 'OAuth 2.0', oauth1: 'OAuth 1.0a', manual: 'Manual' };
@@ -220,8 +221,8 @@
       <div class="modal-body">
         <div class="table-wrap" style="margin-bottom:18px;">
           <table>
-            <thead><tr><th>Label</th><th>Client ID</th><th>Redirect URI</th><th>Env</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-            <tbody id="appsTableBody"><tr><td colspan="6" class="table-empty">Loading…</td></tr></tbody>
+            <thead><tr><th>Label</th><th>Client ID</th><th>Redirect URI</th><th>Env</th><th>Default</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+            <tbody id="appsTableBody"><tr><td colspan="7" class="table-empty">Loading…</td></tr></tbody>
           </table>
         </div>
         <h4 style="margin:0 0 10px;">Add OAuth App</h4>
@@ -237,6 +238,9 @@
           <div class="form-group"><label for="app-client-secret">Client Secret <span style="color:var(--coral);">*</span></label><input type="password" id="app-client-secret" autocomplete="new-password"></div>
         </div>
         <div class="form-group"><label for="app-redirect">Redirect URI <span style="color:var(--coral);">*</span></label><input type="text" id="app-redirect" placeholder="https://yourapp.com/social-oauth-callback.php"></div>
+        <div class="form-group">
+          <label class="checkbox-row"><input type="checkbox" id="app-is-default"> Set as default for this environment</label>
+        </div>
         <button type="button" class="btn btn-primary" id="btnAddApp">Add OAuth App</button>
       </div>
       <div class="modal-footer">
@@ -255,12 +259,14 @@
         client_id: document.getElementById('app-client-id').value.trim(),
         client_secret: document.getElementById('app-client-secret').value,
         redirect_uri: document.getElementById('app-redirect').value.trim(),
+        is_default: document.getElementById('app-is-default').checked ? 1 : 0,
       };
       Admin.setButtonLoading(e.target, true, 'Adding…');
       try {
         await Admin.api.post(API.apps(p.id), payload);
         Admin.toast('OAuth app added', 'success');
         ['app-label', 'app-client-id', 'app-client-secret', 'app-redirect'].forEach((id) => { document.getElementById(id).value = ''; });
+        document.getElementById('app-is-default').checked = false;
         loadApps(p.id);
       } catch (err) {
         errBox.innerHTML = `<div class="form-errors"><strong>${Admin.escapeHtml(err.message)}</strong></div>`;
@@ -279,7 +285,7 @@
       const res = await Admin.api.get(API.apps(platformId));
       const apps = res.data.apps || [];
       if (!apps.length) {
-        body.innerHTML = `<tr><td colspan="6" class="table-empty">No OAuth apps yet.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="7" class="table-empty">No OAuth apps yet.</td></tr>`;
         return;
       }
       body.innerHTML = apps.map((a) => `
@@ -288,12 +294,25 @@
           <td class="cell-muted"><code>${Admin.escapeHtml(a.clientId)}</code></td>
           <td class="cell-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Admin.escapeHtml(a.redirectUri)}</td>
           <td><span class="badge-outline">${Admin.escapeHtml(ENV_LABELS[a.environment] || a.environment)}</span></td>
+          <td>${a.isDefault
+            ? '<span class="badge badge-green"><span class="badge-dot"></span>Default</span>'
+            : `<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:12px;" data-act="set-default">Set default</button>`}</td>
           <td>${Admin.badge(a.isActive)}</td>
           <td class="cell-actions">
             <button class="icon-action icon-action-delete" data-act="delete" title="Delete">${ICON.trash}</button>
           </td>
         </tr>
       `).join('');
+      body.querySelectorAll('[data-act="set-default"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const tr = btn.closest('tr');
+          try {
+            await Admin.api.patch(API.appDefault(tr.dataset.id));
+            Admin.toast('Default OAuth app updated', 'success');
+            loadApps(platformId);
+          } catch (err) { Admin.toastError(err); }
+        });
+      });
       body.querySelectorAll('[data-act="delete"]').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const tr = btn.closest('tr');
@@ -307,7 +326,7 @@
         });
       });
     } catch (err) {
-      body.innerHTML = `<tr><td colspan="6" class="table-empty">Couldn't load OAuth apps.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="table-empty">Couldn't load OAuth apps.</td></tr>`;
       Admin.toastError(err);
     }
   }
