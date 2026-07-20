@@ -891,3 +891,36 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
 }
 .oauth-app-row:hover { border-color: var(--indigo); background: color-mix(in srgb, var(--indigo) 6%, white); }
 .media-tile.is-selected { outline: 2px solid var(--indigo); }
+
+/* ---------- Calendar page ---------- */
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.calendar-weekday {
+  padding: 8px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-faint); background: var(--porcelain); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.calendar-day {
+  min-height: 108px; padding: 6px 6px 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 4px; background: var(--paper);
+}
+.calendar-day.is-outside { background: var(--porcelain); }
+.calendar-day.is-today { background: color-mix(in srgb, var(--indigo) 6%, white); }
+.calendar-day-num {
+  font-size: 12px; font-weight: 650; color: var(--text-muted); align-self: flex-start;
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+}
+.calendar-day.is-today .calendar-day-num { background: var(--indigo); color: #fff; }
+.calendar-day-items { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.calendar-item {
+  display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--pchip, #666) 14%, white); color: var(--pchip, #666);
+}
+.calendar-item::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--pchip, #666); flex-shrink: 0; }
+.calendar-item:hover { filter: brightness(0.95); }
+.calendar-item-more { font-size: 10.5px; font-weight: 650; color: var(--text-faint); cursor: pointer; padding: 2px 6px; }
+.calendar-item-more:hover { color: var(--indigo); }
+.calendar-day-list { display: flex; flex-direction: column; gap: 8px; }
+.calendar-day-list-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: var(--radius-lg); background: var(--paper);
+}

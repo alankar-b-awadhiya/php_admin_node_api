@@ -21,6 +21,8 @@
  *   POST   API.publishTarget(targetId)    - publish a single target now
  *   DELETE API.cancelTarget(targetId)     - cancel a pending/scheduled target
  *   POST   API.refreshTargetAnalytics(targetId)
+ *   GET    API.platformPostTypes(platform, mediaType) - valid post "type" options (+ required fields) for a platform + media_type, powers the Targets tab's per-account "Post type" dropdown
+ *   GET    API.youtubePlaylists(accountId)            - this YouTube channel's playlists, powers the "Playlist" picker when post type = playlist_add
  *
  * media_type is numeric 1-6 (TEXT/IMAGE/VIDEO/CAROUSEL/REEL/STORY), status
  * numeric 1-6 (DRAFT/SCHEDULED/PUBLISHING/PUBLISHED/FAILED/PARTIALLY_PUBLISHED),
@@ -41,6 +43,8 @@
     publishTarget: (targetId) => `/posts/targets/${targetId}/publish`,
     cancelTarget: (targetId) => `/posts/targets/${targetId}`,
     refreshTargetAnalytics: (targetId) => `/posts/targets/${targetId}/refresh-analytics`,
+    platformPostTypes: (platform, mediaType) => `/posts/platform-post-types${Admin.qs({ platform, media_type: mediaType })}`,
+    youtubePlaylists: (accountId) => `/social-accounts/${accountId}/youtube-playlists`,
   };
 
   const API_ORIGIN = (window.API_BASE_URL || '').replace(/\/api\/v1\/?$/, '');
@@ -74,7 +78,10 @@
   let state = { socialClientId: '', search: '', status: '', mediaType: '', page: 1, perPage: 24 };
 
   // ---- Composer (create modal) working state ---------------------------
-  let composer = { mediaType: 1, selectedMedia: [], mediaLibrary: [], mediaPage: 1, mediaSearch: '' };
+  // postTypeOptionsCache: `${platform}:${mediaType}` -> [{type, requiredFields, optionalFields}], from GET API.platformPostTypes
+  // playlistsCache: accountId -> [{playlistId, title, itemCount}], from GET API.youtubePlaylists (fetched lazily, only for YouTube accounts, only when "Add to playlist" is picked)
+  // targetOptions: accountId -> { type, playlist_id, board_id, ... } - the platform_options object being built for each checked target account
+  let composer = { mediaType: 1, selectedMedia: [], mediaLibrary: [], mediaPage: 1, mediaSearch: '', postTypeOptionsCache: {}, playlistsCache: {}, targetOptions: {} };
 
   async function init() {
     await Admin.requireAuth();
@@ -241,7 +248,7 @@
 
   function openComposer() {
     if (!state.socialClientId) { Admin.toast('Select a client first', 'error'); return; }
-    composer = { mediaType: 1, selectedMedia: [], mediaLibrary: [], mediaPage: 1, mediaSearch: '' };
+    composer = { mediaType: 1, selectedMedia: [], mediaLibrary: [], mediaPage: 1, mediaSearch: '', postTypeOptionsCache: {}, playlistsCache: {}, targetOptions: {} };
 
     Admin.openModal(`
       <div class="modal-header"><h3>New Post</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
@@ -325,6 +332,11 @@
       document.getElementById('f-schedule-at').style.display = e.target.checked ? 'block' : 'none';
     });
 
+    document.getElementById('f-media-type').addEventListener('change', () => {
+      composer.targetOptions = {}; // stale type choices no longer apply under the new media_type
+      renderTargetAccountList();
+    });
+
     renderTargetAccountList();
 
     document.getElementById('mediaSearchInput').addEventListener('input', Admin.debounce((e) => {
@@ -340,13 +352,138 @@
     const el = document.getElementById('targetAccountList');
     if (!el) return;
     if (!accountsForClient.length) { el.innerHTML = ''; return; }
+    composer.targetOptions = {};
+
     el.innerHTML = accountsForClient.map((a) => `
-      <label class="checkbox-row" style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 12px;width:100%;">
-        <input type="checkbox" class="target-account-checkbox" value="${a.id}">
-        <span class="platform-chip" style="--pchip:${PLATFORM_COLORS[a.platform] || '#666'}">${Admin.escapeHtml(a.platform)}</span>
-        <span>${Admin.escapeHtml(a.accountName || a.accountUsername || 'Account #' + a.id)}</span>
-      </label>
+      <div class="target-account-row" style="width:100%;">
+        <label class="checkbox-row" style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 12px;width:100%;">
+          <input type="checkbox" class="target-account-checkbox" value="${a.id}">
+          <span class="platform-chip" style="--pchip:${PLATFORM_COLORS[a.platform] || '#666'}">${Admin.escapeHtml(a.platform)}</span>
+          <span>${Admin.escapeHtml(a.accountName || a.accountUsername || 'Account #' + a.id)}</span>
+        </label>
+        <div class="target-account-options" data-account-options="${a.id}" style="display:none;padding:8px 0 4px 28px;"></div>
+      </div>
     `).join('');
+
+    el.querySelectorAll('.target-account-checkbox').forEach((cb) => {
+      cb.addEventListener('change', async (e) => {
+        const accountId = Number(e.target.value);
+        const account = accountsForClient.find((a) => a.id === accountId);
+        const optsEl = el.querySelector(`[data-account-options="${accountId}"]`);
+        if (e.target.checked) {
+          optsEl.style.display = 'block';
+          await loadTargetTypeOptions(accountId, account.platform, optsEl);
+        } else {
+          optsEl.style.display = 'none';
+          optsEl.innerHTML = '';
+          delete composer.targetOptions[accountId];
+        }
+      });
+    });
+  }
+
+  // Fetches (and caches) the valid post-type options for this platform +
+  // the currently selected Media Type, then renders the "Post type"
+  // dropdown for that target account. If the platform doesn't support the
+  // chosen Media Type at all, shows a warning instead (composer.targetOptions
+  // is set to null so submitComposer can catch it).
+  async function loadTargetTypeOptions(accountId, platform, container) {
+    container.innerHTML = '<p class="hint">Loading post type…</p>';
+    const mediaType = Number(document.getElementById('f-media-type').value);
+    const options = await getPlatformPostTypeOptions(platform, mediaType);
+
+    if (!options.length) {
+      container.innerHTML = `<p class="hint" style="color:var(--coral);">${Admin.escapeHtml(MEDIA_TYPE_LABELS[mediaType] || 'This media type')} isn't supported on ${Admin.escapeHtml(platform)} — change Media Type or deselect this account.</p>`;
+      composer.targetOptions[accountId] = null;
+      return;
+    }
+
+    const typeSelectHtml = options.length > 1 ? `
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:12px;">Post type</label>
+        <select class="target-type-select" data-account="${accountId}">
+          ${options.map((o) => `<option value="${o.type}">${Admin.escapeHtml(o.type)}</option>`).join('')}
+        </select>
+      </div>` : '';
+    container.innerHTML = `${typeSelectHtml}<div class="target-required-fields" data-account="${accountId}"></div>`;
+
+    const fieldsEl = container.querySelector('.target-required-fields');
+    const applyOption = (opt) => {
+      composer.targetOptions[accountId] = { type: opt.type, _requiredFields: opt.requiredFields };
+      renderTargetRequiredFields(accountId, platform, opt, fieldsEl);
+    };
+
+    if (options.length > 1) {
+      container.querySelector('.target-type-select').addEventListener('change', (e) => {
+        applyOption(options.find((o) => o.type === e.target.value));
+      });
+    }
+    applyOption(options[0]);
+  }
+
+  async function getPlatformPostTypeOptions(platform, mediaType) {
+    const key = `${platform}:${mediaType}`;
+    if (composer.postTypeOptionsCache[key]) return composer.postTypeOptionsCache[key];
+    try {
+      const res = await Admin.api.get(API.platformPostTypes(platform, mediaType));
+      composer.postTypeOptionsCache[key] = res.data.options || [];
+      return composer.postTypeOptionsCache[key];
+    } catch (err) {
+      Admin.toastError(err);
+      return [];
+    }
+  }
+
+  // Renders inputs for whatever requiredFields the chosen post type needs.
+  // YouTube's playlist_id gets a real dropdown (fetched from the channel's
+  // playlists); every other required field (e.g. Pinterest board_id) falls
+  // back to a plain text input since there's no generic "list values" API
+  // for it yet.
+  async function renderTargetRequiredFields(accountId, platform, option, fieldsEl) {
+    if (!option.requiredFields.length) { fieldsEl.innerHTML = ''; return; }
+
+    if (platform === 'youtube' && option.requiredFields.includes('playlist_id')) {
+      fieldsEl.innerHTML = '<p class="hint">Loading playlists…</p>';
+      const playlists = await getYoutubePlaylists(accountId);
+      if (!playlists.length) {
+        fieldsEl.innerHTML = '<p class="hint" style="color:var(--coral);">No playlists found on this channel — create one on YouTube first.</p>';
+        return;
+      }
+      fieldsEl.innerHTML = `
+        <label style="font-size:12px;">Playlist <span style="color:var(--coral);">*</span></label>
+        <select class="target-required-field" data-field="playlist_id">
+          <option value="">Select a playlist…</option>
+          ${playlists.map((p) => `<option value="${p.playlistId}">${Admin.escapeHtml(p.title)} (${p.itemCount})</option>`).join('')}
+        </select>`;
+      fieldsEl.querySelector('select').addEventListener('change', (e) => {
+        composer.targetOptions[accountId] = { ...composer.targetOptions[accountId], playlist_id: e.target.value };
+      });
+      return;
+    }
+
+    fieldsEl.innerHTML = option.requiredFields.map((field) => `
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:12px;">${Admin.escapeHtml(field)} <span style="color:var(--coral);">*</span></label>
+        <input type="text" class="target-required-field" data-field="${field}" placeholder="${Admin.escapeHtml(field)}">
+      </div>
+    `).join('');
+    fieldsEl.querySelectorAll('.target-required-field').forEach((input) => {
+      input.addEventListener('input', (e) => {
+        composer.targetOptions[accountId] = { ...composer.targetOptions[accountId], [e.target.dataset.field]: e.target.value };
+      });
+    });
+  }
+
+  async function getYoutubePlaylists(accountId) {
+    if (composer.playlistsCache[accountId]) return composer.playlistsCache[accountId];
+    try {
+      const res = await Admin.api.get(API.youtubePlaylists(accountId));
+      composer.playlistsCache[accountId] = res.data.playlists || [];
+      return composer.playlistsCache[accountId];
+    } catch (err) {
+      Admin.toastError(err);
+      return [];
+    }
   }
 
   async function loadMediaPicker(reset) {
@@ -422,6 +559,22 @@
     if (mediaType !== 1 && !composer.selectedMedia.length) errors.push('Pick at least one media item for a non-text post');
     if (!accountIds.length) errors.push('Select at least one target account');
     if (scheduleOn && !scheduleAtRaw) errors.push('Pick a date/time or turn off scheduling');
+
+    // Per-target post type + required field checks (e.g. YouTube playlist_id,
+    // Pinterest board_id) driven by what loadTargetTypeOptions/renderTargetRequiredFields filled into composer.targetOptions.
+    accountIds.forEach((accountId) => {
+      const account = accountsForClient.find((a) => a.id === accountId);
+      const label = account ? account.platform : `account #${accountId}`;
+      const opts = composer.targetOptions[accountId];
+      if (opts === null) {
+        errors.push(`${label}: this media type isn't supported — change Media Type or deselect this account`);
+        return;
+      }
+      (opts?._requiredFields || []).forEach((field) => {
+        if (!opts[field]) errors.push(`${label}: "${field}" is required for post type "${opts.type}"`);
+      });
+    });
+
     if (errors.length) {
       errBox.innerHTML = `<div class="form-errors"><ul>${errors.map((m) => `<li>${Admin.escapeHtml(m)}</li>`).join('')}</ul></div>`;
       return;
@@ -435,7 +588,12 @@
       caption: document.getElementById('f-caption').value.trim(),
       media_type: mediaType,
       media_ids: composer.selectedMedia.map((m) => m.mediaId),
-      targets: accountIds.map((accountId) => ({ account_id: accountId, scheduled_at: scheduledAt })),
+      targets: accountIds.map((accountId) => {
+        const opts = composer.targetOptions[accountId];
+        const platformOptions = opts ? { ...opts } : null;
+        if (platformOptions) delete platformOptions._requiredFields;
+        return { account_id: accountId, scheduled_at: scheduledAt, platform_options: platformOptions || undefined };
+      }),
     };
 
     const btn = document.getElementById('postFormSubmit');
