@@ -36,6 +36,9 @@ include __DIR__ . '/../app/includes/header.php';
     <button class="btn-square" id="btnRefreshCalendar" type="button" title="Refresh" style="margin-left:auto;">
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 0 1 10.2-4.24M16 10a6 6 0 0 1-10.2 4.24M4 3v3.5H7.5M16 17v-3.5H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
+    <button class="btn btn-secondary" id="btnSyncPosts" type="button" title="Pull recent posts straight from each connected account">
+      Sync existing posts
+    </button>
   </div>
 </div>
 

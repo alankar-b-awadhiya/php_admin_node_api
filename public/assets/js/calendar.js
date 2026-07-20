@@ -9,14 +9,23 @@
  *
  *   GET API.clients               - social clients, for the selector
  *   GET API.calendar(clientId, month, year) - { items, byDate } for that month
+ *   GET API.accounts(clientId)     - connected accounts for a client, used by the Sync button
+ *   POST API.syncPosts(accountId)  - pulls that account's recent posts straight from the platform
+ *   PATCH API.updateSyncedPost(accountId, platformPostId) - { caption } - only works when the item's isEditable is true
  *
  * mediaType is numeric 1-6, target status numeric 1-6 (PENDING/SCHEDULED/
  * PUBLISHING/PUBLISHED/FAILED/CANCELED) — see posts.service.js formatCalendarItem.
+ * Items with isNative:true came from social_synced_posts (published
+ * directly on the platform, not through this app) - they have no targetId
+ * and only support editing when isEditable is also true.
  */
 (function () {
   const API = {
     clients: '/social-clients',
     calendar: (socialClientId, month, year) => `/posts/calendar${Admin.qs({ social_client_id: socialClientId || undefined, month, year })}`,
+    accounts: (socialClientId) => `/social-accounts${Admin.qs({ social_client_id: socialClientId, status: 1 })}`,
+    syncPosts: (accountId) => `/social-accounts/${accountId}/sync-posts`,
+    updateSyncedPost: (accountId, platformPostId) => `/social-accounts/${accountId}/synced-posts/${encodeURIComponent(platformPostId)}`,
   };
 
   const PLATFORM_COLORS = {
@@ -50,8 +59,44 @@
       loadCalendar();
     });
     document.getElementById('btnRefreshCalendar').addEventListener('click', () => loadCalendar());
+    document.getElementById('btnSyncPosts').addEventListener('click', syncAllAccounts);
 
     loadCalendar();
+  }
+
+  // Syncs every connected account under the selected client (pulls each
+  // account's recent posts straight from the platform into
+  // social_synced_posts), then reloads the month. Requires a specific
+  // client to be picked - "All clients" is disabled for this since it could
+  // mean syncing dozens of accounts across every client in one click.
+  async function syncAllAccounts() {
+    const btn = document.getElementById('btnSyncPosts');
+    if (!view.socialClientId) {
+      Admin.toast('Pick a specific client first to sync its accounts', 'error');
+      return;
+    }
+    Admin.setButtonLoading(btn, true, 'Syncing…');
+    try {
+      const res = await Admin.api.get(API.accounts(view.socialClientId));
+      const accounts = res.data.accounts || [];
+      let synced = 0;
+      let skipped = 0;
+      for (const acc of accounts) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await Admin.api.post(API.syncPosts(acc.id), {});
+          synced++;
+        } catch (err) {
+          skipped++; // e.g. platform doesn't support syncing (WhatsApp) - not a real failure
+        }
+      }
+      Admin.toast(`Synced ${synced} account(s)${skipped ? `, skipped ${skipped}` : ''}`, 'success');
+      loadCalendar();
+    } catch (err) {
+      Admin.toastError(err);
+    } finally {
+      Admin.setButtonLoading(btn, false);
+    }
   }
 
   function shiftMonth(delta) {
@@ -120,7 +165,7 @@
       const visible = items.slice(0, MAX_ITEMS_PER_CELL);
       const extra = items.length - visible.length;
       const itemsHtml = visible.map((item) => `
-        <div class="calendar-item" data-target-id="${item.targetId}" style="--pchip:${PLATFORM_COLORS[item.platform] || '#666'}" title="${Admin.escapeHtml(item.title || item.caption || item.platform)}">
+        <div class="calendar-item ${item.isNative ? 'is-native' : ''}" data-item-key="${itemKey(item)}" style="--pchip:${PLATFORM_COLORS[item.platform] || '#666'}" title="${Admin.escapeHtml((item.isNative ? '[Native] ' : '') + (item.title || item.caption || item.platform))}">
           ${Admin.escapeHtml(item.title || item.caption || item.accountName || item.platform)}
         </div>
       `).join('');
@@ -137,7 +182,7 @@
     grid.innerHTML = weekdaysHtml + cellsHtml;
 
     grid.querySelectorAll('.calendar-item').forEach((el) => {
-      el.addEventListener('click', () => openItemDetail(Number(el.dataset.targetId)));
+      el.addEventListener('click', () => openItemDetail(el.dataset.itemKey));
     });
     grid.querySelectorAll('.calendar-item-more, .calendar-day').forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -148,9 +193,16 @@
     });
   }
 
-  function findItem(targetId) {
+  // Own (scheduler) items have a real targetId; native/synced items don't,
+  // so they're keyed by accountId+platformPostId instead. Same key format
+  // is used in HTML data-attributes and for lookups in findItem().
+  function itemKey(item) {
+    return item.isNative ? `s:${item.accountId}:${item.platformPostId}` : `t:${item.targetId}`;
+  }
+
+  function findItem(key) {
     for (const date in byDate) {
-      const found = byDate[date].find((i) => i.targetId === targetId);
+      const found = byDate[date].find((i) => itemKey(i) === key);
       if (found) return found;
     }
     return null;
@@ -165,10 +217,10 @@
       <div class="modal-body">
         <div class="calendar-day-list">
           ${items.length ? items.map((item) => `
-            <div class="calendar-day-list-row" data-target-id="${item.targetId}" style="cursor:pointer;">
+            <div class="calendar-day-list-row" data-item-key="${itemKey(item)}" style="cursor:pointer;">
               <span class="platform-chip" style="--pchip:${PLATFORM_COLORS[item.platform] || '#666'}">${Admin.escapeHtml(item.platform)}</span>
               <div style="flex:1;min-width:0;">
-                <div style="font-weight:650;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Admin.escapeHtml(item.title || item.caption || '(no caption)')}</div>
+                <div style="font-weight:650;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.isNative ? '<span class="hint" style="margin-right:4px;">[Native]</span>' : ''}${Admin.escapeHtml(item.title || item.caption || '(no caption)')}</div>
                 <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px;">${Admin.escapeHtml(item.accountName || item.accountUsername || '')} · ${item.effectiveAt ? new Date(item.effectiveAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
               </div>
               <span class="badge ${TARGET_STATUS_BADGE[item.targetStatus] || 'badge-gray'}">${Admin.escapeHtml(item.targetStatusLabel || '')}</span>
@@ -183,12 +235,12 @@
     const backdrop = document.getElementById('modalBackdrop');
     backdrop.querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
     backdrop.querySelectorAll('.calendar-day-list-row').forEach((row) => {
-      row.addEventListener('click', () => openItemDetail(Number(row.dataset.targetId)));
+      row.addEventListener('click', () => openItemDetail(row.dataset.itemKey));
     });
   }
 
-  function openItemDetail(targetId) {
-    const item = findItem(targetId);
+  function openItemDetail(key) {
+    const item = findItem(key);
     if (!item) return;
 
     Admin.openModal(`
@@ -196,26 +248,59 @@
       <div class="modal-body">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span class="platform-chip" style="--pchip:${PLATFORM_COLORS[item.platform] || '#666'}">${Admin.escapeHtml(item.platform)}</span>
-          <span class="badge ${TARGET_STATUS_BADGE[item.targetStatus] || 'badge-gray'}">${Admin.escapeHtml(item.targetStatusLabel || '')}</span>
+          ${item.isNative
+            ? `<span class="badge badge-indigo">Native (not from this app)</span>`
+            : `<span class="badge ${TARGET_STATUS_BADGE[item.targetStatus] || 'badge-gray'}">${Admin.escapeHtml(item.targetStatusLabel || '')}</span>`}
         </div>
         ${item.title ? `<p style="font-weight:650;margin:0 0 6px;">${Admin.escapeHtml(item.title)}</p>` : ''}
-        ${item.caption ? `<p style="white-space:pre-wrap;color:var(--text-muted);font-size:13px;margin:0 0 12px;">${Admin.escapeHtml(item.caption)}</p>` : ''}
+        ${item.isNative && item.isEditable ? `
+          <div class="form-group">
+            <label for="itemCaptionEdit">Caption</label>
+            <textarea id="itemCaptionEdit" rows="3">${Admin.escapeHtml(item.caption || '')}</textarea>
+            <p class="hint">Saving updates this directly on ${Admin.escapeHtml(item.platform)}.</p>
+          </div>
+        ` : item.caption ? `<p style="white-space:pre-wrap;color:var(--text-muted);font-size:13px;margin:0 0 12px;">${Admin.escapeHtml(item.caption)}</p>` : ''}
+        ${item.isNative && !item.isEditable ? `<p class="hint" style="margin-bottom:12px;">${Admin.escapeHtml(item.platform)} doesn't support editing posts after they're published — view only.</p>` : ''}
         <div class="form-row">
           <div class="form-group"><label>Account</label><p style="margin:0;font-size:13px;">${Admin.escapeHtml(item.accountName || item.accountUsername || '—')}</p></div>
           <div class="form-group"><label>Media type</label><p style="margin:0;font-size:13px;">${Admin.escapeHtml(item.mediaTypeLabel || '—')}</p></div>
         </div>
+        ${!item.isNative ? `
         <div class="form-row">
           <div class="form-group"><label>Scheduled at</label><p style="margin:0;font-size:13px;">${item.scheduledAt ? new Date(item.scheduledAt).toLocaleString() : '—'}</p></div>
           <div class="form-group"><label>Published at</label><p style="margin:0;font-size:13px;">${item.publishedAt ? new Date(item.publishedAt).toLocaleString() : '—'}</p></div>
-        </div>
+        </div>` : `
+        <div class="form-group"><label>Published at</label><p style="margin:0;font-size:13px;">${item.publishedAt ? new Date(item.publishedAt).toLocaleString() : '—'}</p></div>`}
         ${item.platformPostUrl ? `<a href="${Admin.escapeHtml(item.platformPostUrl)}" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-top:8px;">View on ${Admin.escapeHtml(item.platform)}</a>` : ''}
+        <div id="itemDetailErrors"></div>
       </div>
       <div class="modal-footer">
-        <a href="posts.php" class="btn btn-secondary">Open in Posts</a>
+        ${!item.isNative ? '<a href="posts.php" class="btn btn-secondary">Open in Posts</a>' : ''}
+        ${item.isNative && item.isEditable ? '<button type="button" class="btn btn-primary" id="btnSaveCaption">Save</button>' : ''}
         <button type="button" class="btn btn-secondary" data-act="close">Close</button>
       </div>
     `);
     document.getElementById('modalBackdrop').querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+
+    const saveBtn = document.getElementById('btnSaveCaption');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async (e) => {
+        const errBox = document.getElementById('itemDetailErrors');
+        errBox.innerHTML = '';
+        const caption = document.getElementById('itemCaptionEdit').value;
+        Admin.setButtonLoading(e.target, true, 'Saving…');
+        try {
+          await Admin.api.patch(API.updateSyncedPost(item.accountId, item.platformPostId), { caption });
+          Admin.toast('Post updated', 'success');
+          Admin.closeModal();
+          loadCalendar();
+        } catch (err) {
+          errBox.innerHTML = `<div class="form-errors"><strong>${Admin.escapeHtml(err.message)}</strong></div>`;
+        } finally {
+          Admin.setButtonLoading(e.target, false);
+        }
+      });
+    }
   }
 
   init();

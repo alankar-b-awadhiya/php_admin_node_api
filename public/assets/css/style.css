@@ -916,6 +916,7 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
   background: color-mix(in srgb, var(--pchip, #666) 14%, white); color: var(--pchip, #666);
 }
 .calendar-item::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--pchip, #666); flex-shrink: 0; }
+.calendar-item.is-native { border: 1px dashed var(--pchip, #666); background: white; }
 .calendar-item:hover { filter: brightness(0.95); }
 .calendar-item-more { font-size: 10.5px; font-weight: 650; color: var(--text-faint); cursor: pointer; padding: 2px 6px; }
 .calendar-item-more:hover { color: var(--indigo); }
