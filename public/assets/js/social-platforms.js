@@ -239,6 +239,14 @@
         </div>
         <div class="form-group"><label for="app-redirect">Redirect URI <span style="color:var(--coral);">*</span></label><input type="text" id="app-redirect" placeholder="https://yourapp.com/social-oauth-callback.php"></div>
         <div class="form-group">
+          <label for="app-redirect">Redirect URI <span style="color:var(--coral);">*</span></label>
+          <input type="text" id="app-redirect" placeholder="https://yourapp.com/social-oauth-callback.php">
+        </div>
+        <div class="form-group">
+          <label for="app-config-id">Config ID <span class="cell-muted" style="font-weight:400;">(optional — Facebook Login for Business)</span></label>
+          <input type="text" id="app-config-id" placeholder="e.g. 1324846843050760">
+        </div>
+        <div class="form-group">
           <label class="checkbox-row"><input type="checkbox" id="app-is-default"> Set as default for this environment</label>
         </div>
         <button type="button" class="btn btn-primary" id="btnAddApp">Add OAuth App</button>
@@ -253,6 +261,7 @@
     document.getElementById('btnAddApp').addEventListener('click', async (e) => {
       const errBox = document.getElementById('appFormErrors');
       errBox.innerHTML = '';
+      const configId = document.getElementById('app-config-id').value.trim();
       const payload = {
         app_label: document.getElementById('app-label').value.trim(),
         environment: document.getElementById('app-env').value,
@@ -260,12 +269,13 @@
         client_secret: document.getElementById('app-client-secret').value,
         redirect_uri: document.getElementById('app-redirect').value.trim(),
         is_default: document.getElementById('app-is-default').checked ? 1 : 0,
+        extra: configId ? { config_id: configId } : null,
       };
       Admin.setButtonLoading(e.target, true, 'Adding…');
       try {
         await Admin.api.post(API.apps(p.id), payload);
         Admin.toast('OAuth app added', 'success');
-        ['app-label', 'app-client-id', 'app-client-secret', 'app-redirect'].forEach((id) => { document.getElementById(id).value = ''; });
+        ['app-label', 'app-client-id', 'app-client-secret', 'app-redirect', 'app-config-id'].forEach((id) => { document.getElementById(id).value = ''; });
         document.getElementById('app-is-default').checked = false;
         loadApps(p.id);
       } catch (err) {
@@ -294,6 +304,7 @@
           <td class="cell-muted"><code>${Admin.escapeHtml(a.clientId)}</code></td>
           <td class="cell-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Admin.escapeHtml(a.redirectUri)}</td>
           <td><span class="badge-outline">${Admin.escapeHtml(ENV_LABELS[a.environment] || a.environment)}</span></td>
+          <td><strong>${Admin.escapeHtml(a.appLabel)}</strong>${a.extra?.config_id ? `<br><span class="cell-muted" style="font-size:11px;">config_id: ${Admin.escapeHtml(a.extra.config_id)}</span>` : ''}</td>
           <td>${a.isDefault
             ? '<span class="badge badge-green"><span class="badge-dot"></span>Default</span>'
             : `<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:12px;" data-act="set-default">Set default</button>`}</td>
