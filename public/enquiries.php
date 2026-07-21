@@ -73,9 +73,10 @@ include __DIR__ . '/../app/includes/header.php';
       <select id="typeFilter">
         <option value="">All Types</option>
         <option value="contact">Contact</option>
+        <option value="quote">Quote</option>
         <option value="support">Support</option>
-        <option value="sales">Sales</option>
-        <option value="general">General</option>
+        <option value="partnership">Partnership</option>
+        <option value="other">Other</option>
       </select>
     </div>
     <div class="form-group" style="margin-bottom:0;">

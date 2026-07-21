@@ -3,6 +3,13 @@
  * section of the API reference: aba_main_db `enquiries`, `enquiry_replies`.
  * Public contact form + admin inbox).
  *
+ * Reply threads now carry a `direction`: 'outbound' (admin reply - actually
+ * emailed to the lead via SMTP) or 'inbound' (lead replied by email; picked
+ * up by the IMAP poller at POST /enquiries/poll-replies, run on a server
+ * cron - nothing to trigger from this page, it just shows up in the thread
+ * once it lands). Admin replies can also be marked `is_internal` - a note
+ * for the team that's saved but never emailed out.
+ *
  * ---------------------------------------------------------------------------
  * API map — every endpoint this file calls. Update paths here ONLY.
  *   Node API: src/api/v1/index.js, src/domains/enquiries/v1/enquiries.routes.js
@@ -14,7 +21,8 @@
  *   PATCH API.update(id)         - update status / priority / assignment
  *   PATCH API.markSpam(id)       - mark as spam
  *   PATCH API.bulkStatus         - { ids, status } bulk update
- *   POST  API.reply              - { enquiry_id, message } reply to an enquiry
+ *   POST  API.reply              - { enquiry_id, message, is_internal } reply to an enquiry
+ *                                   (is_internal=false actually sends an email to the lead)
  *   DELETE API.remove(id)        - delete an enquiry
  *
  * NOTE: the README's samples for this domain (submit/track) come back in
@@ -314,6 +322,29 @@
     loadList(); // reflect the auto-mark-as-read
   }
 
+  function renderReplyItem(rep) {
+    const direction = rep.direction || 'outbound';
+    const isInternal = Boolean(rep.isInternal ?? rep.is_internal);
+    const fromEmail = rep.fromEmail || rep.from_email || '';
+    const author = direction === 'inbound'
+      ? (fromEmail || 'Lead')
+      : (rep.authorName || rep.author_name || 'Admin');
+    const classes = ['enq-reply-item'];
+    if (direction === 'inbound') classes.push('is-inbound');
+    else if (isInternal) classes.push('is-internal');
+
+    let tag = '';
+    if (direction === 'inbound') tag = '<span class="enq-reply-tag tag-inbound">Lead replied</span>';
+    else if (isInternal) tag = '<span class="enq-reply-tag tag-internal">Internal note</span>';
+
+    return `
+      <div class="${classes.join(' ')}">
+        <div class="enq-reply-meta">${tag}${Admin.escapeHtml(author)} · ${Admin.formatDate(rep.createdAt || rep.created_at)}</div>
+        <div>${Admin.escapeHtml(rep.message || rep.body || '')}</div>
+      </div>
+    `;
+  }
+
   function renderViewModal(r) {
     const ref = r.refNo || r.ref_no || r.id;
     const name = r.name || r.fullName || r.full_name || '—';
@@ -358,17 +389,16 @@
 
         <h3 style="font-size:13.5px;margin-bottom:10px;">Replies</h3>
         <div id="repliesList">
-          ${replies.length ? replies.map((rep) => `
-            <div class="enq-reply-item">
-              <div class="enq-reply-meta">${Admin.escapeHtml(rep.authorName || rep.author_name || 'Admin')} · ${Admin.formatDate(rep.createdAt || rep.created_at)}</div>
-              <div>${Admin.escapeHtml(rep.message || rep.body || '')}</div>
-            </div>
-          `).join('') : '<p class="hint">No replies yet.</p>'}
+          ${replies.length ? replies.map(renderReplyItem).join('') : '<p class="hint">No replies yet.</p>'}
         </div>
         <div class="form-group" style="margin-top:12px;">
           <label for="v-reply">Reply</label>
           <textarea id="v-reply" placeholder="Write a reply..."></textarea>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-muted);margin-top:6px;">
+          <input type="checkbox" id="v-reply-internal">
+          Internal note only (don't email the lead)
+        </label>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-act="close">Close</button>
@@ -409,11 +439,12 @@
     backdrop.querySelector('#btnSendReply').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       const message = document.getElementById('v-reply').value.trim();
+      const isInternal = document.getElementById('v-reply-internal').checked;
       if (!message) { Admin.toast('Write a reply first', 'error'); return; }
       Admin.setButtonLoading(btn, true, 'Sending…');
       try {
-        await Admin.api.post(API.reply, { enquiry_id: r.id, message });
-        Admin.toast('Reply sent', 'success');
+        await Admin.api.post(API.reply, { enquiry_id: r.id, message, is_internal: isInternal });
+        Admin.toast(isInternal ? 'Internal note saved' : 'Reply sent — emailed to the lead', 'success');
         openViewModal(r); // reload with the new reply
       } catch (err) { Admin.toastError(err); } finally { Admin.setButtonLoading(btn, false); }
     });
