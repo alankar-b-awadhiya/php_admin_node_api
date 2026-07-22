@@ -237,7 +237,6 @@
           <div class="form-group"><label for="app-client-id">Client ID <span style="color:var(--coral);">*</span></label><input type="text" id="app-client-id"></div>
           <div class="form-group"><label for="app-client-secret">Client Secret <span style="color:var(--coral);">*</span></label><input type="password" id="app-client-secret" autocomplete="new-password"></div>
         </div>
-        <div class="form-group"><label for="app-redirect">Redirect URI <span style="color:var(--coral);">*</span></label><input type="text" id="app-redirect" placeholder="https://yourapp.com/social-oauth-callback.php"></div>
         <div class="form-group">
           <label for="app-redirect">Redirect URI <span style="color:var(--coral);">*</span></label>
           <input type="text" id="app-redirect" placeholder="https://yourapp.com/social-oauth-callback.php">
@@ -300,16 +299,19 @@
       }
       body.innerHTML = apps.map((a) => `
         <tr data-id="${a.id}">
-          <td><strong>${Admin.escapeHtml(a.appLabel)}</strong></td>
+          <td>
+            <strong>${Admin.escapeHtml(a.appLabel)}</strong>
+            ${a.extra?.config_id ? `<br><span class="cell-muted" style="font-size:11px;">config_id: ${Admin.escapeHtml(a.extra.config_id)}</span>` : ''}
+          </td>
           <td class="cell-muted"><code>${Admin.escapeHtml(a.clientId)}</code></td>
           <td class="cell-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Admin.escapeHtml(a.redirectUri)}</td>
           <td><span class="badge-outline">${Admin.escapeHtml(ENV_LABELS[a.environment] || a.environment)}</span></td>
-          <td><strong>${Admin.escapeHtml(a.appLabel)}</strong>${a.extra?.config_id ? `<br><span class="cell-muted" style="font-size:11px;">config_id: ${Admin.escapeHtml(a.extra.config_id)}</span>` : ''}</td>
           <td>${a.isDefault
             ? '<span class="badge badge-green"><span class="badge-dot"></span>Default</span>'
             : `<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:12px;" data-act="set-default">Set default</button>`}</td>
           <td>${Admin.badge(a.isActive)}</td>
           <td class="cell-actions">
+            <button class="icon-action icon-action-edit" data-act="edit-app" title="Edit">${ICON.edit}</button>
             <button class="icon-action icon-action-delete" data-act="delete" title="Delete">${ICON.trash}</button>
           </td>
         </tr>
@@ -322,6 +324,13 @@
             Admin.toast('Default OAuth app updated', 'success');
             loadApps(platformId);
           } catch (err) { Admin.toastError(err); }
+        });
+      });
+      body.querySelectorAll('[data-act="edit-app"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tr = btn.closest('tr');
+          const app = apps.find((x) => String(x.id) === tr.dataset.id);
+          openEditAppModal(app, platformId);
         });
       });
       body.querySelectorAll('[data-act="delete"]').forEach((btn) => {
@@ -340,6 +349,63 @@
       body.innerHTML = `<tr><td colspan="7" class="table-empty">Couldn't load OAuth apps.</td></tr>`;
       Admin.toastError(err);
     }
+  }
+
+  // ---- Edit OAuth App modal ----------------------------------------------
+
+  function openEditAppModal(a, platformId) {
+    Admin.openModal(`
+      <div class="modal-header"><h3>Edit OAuth App</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
+      <div class="modal-body">
+        <div id="editAppFormErrors"></div>
+        <div class="form-row">
+          <div class="form-group"><label for="eapp-label">Label</label><input type="text" id="eapp-label" value="${Admin.escapeHtml(a.appLabel)}"></div>
+          <div class="form-group"><label for="eapp-env">Environment</label>
+            <select id="eapp-env">${Object.entries(ENV_LABELS).map(([v, l]) => `<option value="${v}" ${a.environment === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="form-group"><label for="eapp-client-id">Client ID</label><input type="text" id="eapp-client-id" value="${Admin.escapeHtml(a.clientId)}"></div>
+        <div class="form-group">
+          <label for="eapp-client-secret">Client Secret <span class="cell-muted" style="font-weight:400;">(leave blank to keep current)</span></label>
+          <input type="password" id="eapp-client-secret" autocomplete="new-password" placeholder="••••••••">
+        </div>
+        <div class="form-group"><label for="eapp-redirect">Redirect URI</label><input type="text" id="eapp-redirect" value="${Admin.escapeHtml(a.redirectUri)}"></div>
+        <div class="form-group"><label for="eapp-config-id">Config ID</label><input type="text" id="eapp-config-id" value="${Admin.escapeHtml(a.extra?.config_id || '')}"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-act="close">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSaveApp">Save</button>
+      </div>
+    `);
+    const backdrop = document.getElementById('modalBackdrop');
+    backdrop.querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+
+    document.getElementById('btnSaveApp').addEventListener('click', async (e) => {
+      const errBox = document.getElementById('editAppFormErrors');
+      errBox.innerHTML = '';
+      const configId = document.getElementById('eapp-config-id').value.trim();
+      const secret = document.getElementById('eapp-client-secret').value;
+      const payload = {
+        app_label: document.getElementById('eapp-label').value.trim(),
+        environment: document.getElementById('eapp-env').value,
+        client_id: document.getElementById('eapp-client-id').value.trim(),
+        redirect_uri: document.getElementById('eapp-redirect').value.trim(),
+        extra: configId ? { config_id: configId } : null,
+      };
+      if (secret) payload.client_secret = secret;
+
+      Admin.setButtonLoading(e.target, true, 'Saving…');
+      try {
+        await Admin.api.patch(API.app(a.id), payload);
+        Admin.toast('OAuth app updated', 'success');
+        Admin.closeModal();
+        loadApps(platformId);
+      } catch (err) {
+        errBox.innerHTML = `<div class="form-errors"><strong>${Admin.escapeHtml(err.message)}</strong></div>`;
+      } finally {
+        Admin.setButtonLoading(e.target, false);
+      }
+    });
   }
 
   init();
