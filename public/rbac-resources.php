@@ -8,7 +8,7 @@ include __DIR__ . '/../app/includes/header.php';
 <div class="page-header">
   <div>
     <h2>Master Resources</h2>
-    <p class="subtitle">Manage resource mappings, types, and their active status</p>
+    <p class="subtitle">Manage resource mappings, types, parent/child hierarchy, and their active status</p>
   </div>
   <div class="toolbar">
     <button class="btn btn-primary" id="btnNewResource">
@@ -49,10 +49,10 @@ include __DIR__ . '/../app/includes/header.php';
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Name</th><th>Type</th><th>Ref ID</th><th>Description</th><th>Status</th><th>Created</th><th style="text-align:right;">Actions</th></tr>
+        <tr><th>Name</th><th>Type</th><th>Parent</th><th>Ref ID</th><th>Description</th><th>Status</th><th>Created</th><th style="text-align:right;">Actions</th></tr>
       </thead>
       <tbody id="resourcesTableBody">
-        <tr><td colspan="7" class="table-empty">Loading resources…</td></tr>
+        <tr><td colspan="8" class="table-empty">Loading resources…</td></tr>
       </tbody>
     </table>
   </div>

@@ -89,6 +89,10 @@ include __DIR__ . '/../app/includes/header.php';
           Copy
         </button>
       </div>
+      <button class="btn btn-secondary" id="btnEffective" type="button">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M1 10s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="2.4" stroke="currentColor" stroke-width="1.6"/></svg>
+        Effective Permissions
+      </button>
     </div>
     <div class="matrix-toolbar-right">
       <span class="autosave-note" id="autosaveNote">
