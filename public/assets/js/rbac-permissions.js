@@ -16,6 +16,10 @@
  *   POST /master-rbac/usertypes/:usertypeId/grants/bulk       (grant-all / revoke-all / copy-from — new bulk endpoint)
  */
 (function () {
+  const apiV2 = {
+    get: (p) => Admin.api.get(p, { base: Admin.apiBase('v2') }), post: (p, b) => Admin.api.post(p, b, { base: Admin.apiBase('v2') }),
+    put: (p, b) => Admin.api.put(p, b, { base: Admin.apiBase('v2') }), patch: (p, b) => Admin.api.patch(p, b, { base: Admin.apiBase('v2') }), del: (p) => Admin.api.del(p, { base: Admin.apiBase('v2') }),
+  };
   const ICON = {
     view: '<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M1 10s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="2.4" stroke="currentColor" stroke-width="1.6"/></svg>',
     edit: '<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
@@ -62,7 +66,7 @@
       body.innerHTML = `<tr><td colspan="7" class="table-empty">Loading permissions…</td></tr>`;
       try {
         const isActive = document.getElementById('statusFilter').value;
-        const res = await Admin.api.get('/master-rbac/permissions' + Admin.qs({ isActive }));
+        const res = await apiV2.get('/master-rbac/permissions' + Admin.qs({ isActive }));
         rows = res.data;
         render();
       } catch (err) {
@@ -172,13 +176,13 @@
         Admin.setButtonLoading(btn, true, 'Saving…');
         try {
           if (p) {
-            await Admin.api.put(`/master-rbac/permissions/${p.id}`, {
+            await apiV2.put(`/master-rbac/permissions/${p.id}`, {
               permissionName: document.getElementById('f-permissionName').value.trim(),
               description: document.getElementById('f-description').value.trim() || null,
             });
             Admin.toast('Permission updated', 'success');
           } else {
-            await Admin.api.post('/master-rbac/permissions', {
+            await apiV2.post('/master-rbac/permissions', {
               permissionCode: document.getElementById('f-permissionCode').value.trim().toUpperCase() || undefined,
               permissionName: document.getElementById('f-permissionName').value.trim(),
               description: document.getElementById('f-description').value.trim() || null,
@@ -199,7 +203,7 @@
 
     async function toggleStatus(p, isActive) {
       try {
-        await Admin.api.patch(`/master-rbac/permissions/${p.id}/status`, { isActive });
+        await apiV2.patch(`/master-rbac/permissions/${p.id}/status`, { isActive });
         Admin.toast(isActive ? 'Permission activated' : 'Permission deactivated', 'success');
         load();
       } catch (err) { Admin.toastError(err); load(); }
@@ -214,7 +218,7 @@
       });
       if (!ok) return;
       try {
-        await Admin.api.del(`/master-rbac/permissions/${p.id}`);
+        await apiV2.del(`/master-rbac/permissions/${p.id}`);
         Admin.toast('Permission deleted', 'success');
         load();
       } catch (err) { Admin.toastError(err); }
@@ -234,8 +238,8 @@
       try {
         const [utRes, resRes, permRes] = await Promise.all([
           Admin.api.get('/master-usertypes' + Admin.qs({ isActive: 'true' })),
-          Admin.api.get('/master-rbac/resources' + Admin.qs({ isActive: 'true' })),
-          Admin.api.get('/master-rbac/permissions' + Admin.qs({ isActive: 'true' })),
+          apiV2.get('/master-rbac/resources' + Admin.qs({ isActive: 'true' })),
+          apiV2.get('/master-rbac/permissions' + Admin.qs({ isActive: 'true' })),
         ]);
         usertypes = utRes.data;
         resources = resRes.data;
@@ -267,7 +271,7 @@
     async function loadGrantsForRole(usertypeId) {
       renderLoading();
       try {
-        const res = await Admin.api.get('/master-rbac/grants' + Admin.qs({ usertypeId, isActive: 'true' }));
+        const res = await apiV2.get('/master-rbac/grants' + Admin.qs({ usertypeId, isActive: 'true' }));
         grantMap = {};
         res.data.forEach((g) => { grantMap[`${g.resource.id}:${g.permission.id}`] = g; });
         renderMatrix(usertypeId);
@@ -343,7 +347,7 @@
       const isAllowed = input.checked;
       input.disabled = true;
       try {
-        await Admin.api.post('/master-rbac/grants', { usertypeId: Number(usertypeId), resourceId, permissionId, isAllowed });
+        await apiV2.post('/master-rbac/grants', { usertypeId: Number(usertypeId), resourceId, permissionId, isAllowed });
         grantMap[`${resourceId}:${permissionId}`] = { resource: { id: resourceId }, permission: { id: permissionId }, isAllowed };
       } catch (err) {
         input.checked = !isAllowed; // revert on failure
@@ -359,7 +363,7 @@
         .flatMap((r) => permissions.map((p) => ({ resourceId: r.id, permissionId: p.id, isAllowed })));
       if (!grants.length) return;
       try {
-        await Admin.api.post(`/master-rbac/usertypes/${usertypeId}/grants/bulk`, { grants });
+        await apiV2.post(`/master-rbac/usertypes/${usertypeId}/grants/bulk`, { grants });
         Admin.toast(`${type} ${isAllowed ? 'granted' : 'revoked'} for all permissions`, 'success');
         await loadGrantsForRole(usertypeId);
       } catch (err) { Admin.toastError(err); }
@@ -379,7 +383,7 @@
       const btn = isAllowed ? document.getElementById('btnGrantAll') : document.getElementById('btnRevokeAll');
       Admin.setButtonLoading(btn, true, isAllowed ? 'Granting…' : 'Revoking…');
       try {
-        await Admin.api.post(`/master-rbac/usertypes/${usertypeId}/grants/bulk`, { grants });
+        await apiV2.post(`/master-rbac/usertypes/${usertypeId}/grants/bulk`, { grants });
         Admin.toast(isAllowed ? 'All permissions granted' : 'All permissions revoked', 'success');
         await loadGrantsForRole(usertypeId);
       } catch (err) {
@@ -403,10 +407,10 @@
       const btn = document.getElementById('btnCopyFrom');
       Admin.setButtonLoading(btn, true, 'Copying…');
       try {
-        const res = await Admin.api.get('/master-rbac/grants' + Admin.qs({ usertypeId: sourceId, isActive: 'true' }));
+        const res = await apiV2.get('/master-rbac/grants' + Admin.qs({ usertypeId: sourceId, isActive: 'true' }));
         const grants = res.data.map((g) => ({ resourceId: g.resource.id, permissionId: g.permission.id, isAllowed: g.isAllowed }));
         if (grants.length) {
-          await Admin.api.post(`/master-rbac/usertypes/${targetId}/grants/bulk`, { grants });
+          await apiV2.post(`/master-rbac/usertypes/${targetId}/grants/bulk`, { grants });
         }
         Admin.toast('Permissions copied', 'success');
         await loadGrantsForRole(targetId);

@@ -15,9 +15,17 @@ $navGroups = [
   ['key' => 'content', 'title' => 'Content', 'items' => [
     ['key' => 'categories', 'href' => 'categories.php', 'label' => 'Categories', 'icon' => 'layers'],
     ['key' => 'media', 'href' => 'media.php', 'label' => 'Media Library', 'icon' => 'folder'],
-    ['key' => 'products', 'href' => 'products.php', 'label' => 'Products', 'icon' => 'package'],
     ['key' => 'blogs', 'href' => 'blogs.php', 'label' => 'Blogs', 'icon' => 'blog'],
     ['key' => 'clientele', 'href' => 'clientele.php', 'label' => 'Clientele', 'icon' => 'clientele'],
+  ]],
+  ['key' => 'ecommerce', 'title' => 'Ecommerce', 'items' => [
+    ['key' => 'products', 'href' => 'products.php', 'label' => 'Products', 'icon' => 'package'],
+    ['key' => 'services', 'href' => 'services.php', 'label' => 'Services', 'icon' => 'layers'],
+    ['key' => 'sellers', 'href' => 'sellers.php', 'label' => 'Sellers', 'icon' => 'users'],
+    ['key' => 'purchase-orders', 'href' => 'purchase-orders.php', 'label' => 'Orders', 'icon' => 'package'],
+    ['key' => 'quotations', 'href' => 'quotations.php', 'label' => 'Quotations', 'icon' => 'tag'],
+    ['key' => 'invoices', 'href' => 'invoices.php', 'label' => 'Invoices', 'icon' => 'blog'],
+    ['key' => 'payments', 'href' => 'payments.php', 'label' => 'Payments', 'icon' => 'key'],
   ]],
   ['key' => 'social', 'title' => 'Social Media', 'items' => [
     ['key' => 'social-clients', 'href' => 'social-clients.php', 'label' => 'Clients', 'icon' => 'clientele'],

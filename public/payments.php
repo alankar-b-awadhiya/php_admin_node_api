@@ -1,0 +1,5 @@
+<?php require_once __DIR__ . '/../app/config/config.php'; $pageTitle='Payments'; $activeNav='payments'; $pageScript='payments.js'; include __DIR__ . '/../app/includes/header.php'; ?>
+<div class="page-header"><div><h2>Payments</h2><p class="subtitle">Gateway payment transactions</p></div></div>
+<div class="card" style="margin-bottom:18px"><div class="card-body" style="padding:14px 16px;display:flex;gap:10px"><div class="search-field"><input id="paymentSearch" type="search" placeholder="Search invoice or customer"></div><button class="btn-square" id="paymentRefresh">↻</button></div></div>
+<div class="card"><div class="card-header"><div class="card-header-lead"><h3>Payment transactions</h3></div><span class="count-pill" id="paymentCount">0 payments</span></div><div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reference</th><th>Status</th><th>Recorded</th></tr></thead><tbody id="paymentRows"></tbody></table></div></div>
+<?php include __DIR__ . '/../app/includes/footer.php'; ?>

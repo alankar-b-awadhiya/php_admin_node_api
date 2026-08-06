@@ -6,6 +6,10 @@
  *   DELETE   /master-rbac/resources/:id  (SUPERADMIN only)
  */
 (function () {
+  const apiV2 = {
+    get: (p) => Admin.api.get(p, { base: Admin.apiBase('v2') }), post: (p, b) => Admin.api.post(p, b, { base: Admin.apiBase('v2') }),
+    put: (p, b) => Admin.api.put(p, b, { base: Admin.apiBase('v2') }), patch: (p, b) => Admin.api.patch(p, b, { base: Admin.apiBase('v2') }), del: (p) => Admin.api.del(p, { base: Admin.apiBase('v2') }),
+  };
   let rows = [];
 
   const ICON = {
@@ -32,7 +36,7 @@
     body.innerHTML = `<tr><td colspan="7" class="table-empty">Loading resources…</td></tr>`;
     try {
       const isActive = document.getElementById('statusFilter').value;
-      const res = await Admin.api.get('/master-rbac/resources' + Admin.qs({ isActive }));
+      const res = await apiV2.get('/master-rbac/resources' + Admin.qs({ isActive }));
       rows = res.data;
       populateTypeFilter();
       render();
@@ -164,13 +168,13 @@
       Admin.setButtonLoading(btn, true, 'Saving…');
       try {
         if (r) {
-          await Admin.api.put(`/master-rbac/resources/${r.id}`, {
+          await apiV2.put(`/master-rbac/resources/${r.id}`, {
             resourceName: document.getElementById('f-resourceName').value.trim(),
             description: document.getElementById('f-description').value.trim() || null,
           });
           Admin.toast('Resource updated', 'success');
         } else {
-          await Admin.api.post('/master-rbac/resources', {
+          await apiV2.post('/master-rbac/resources', {
             resourceType: document.getElementById('f-resourceType').value.trim().toUpperCase(),
             resourceRefId: Number(document.getElementById('f-resourceRefId').value),
             resourceName: document.getElementById('f-resourceName').value.trim(),
@@ -192,7 +196,7 @@
 
   async function toggleStatus(r, isActive) {
     try {
-      await Admin.api.patch(`/master-rbac/resources/${r.id}/status`, { isActive });
+      await apiV2.patch(`/master-rbac/resources/${r.id}/status`, { isActive });
       Admin.toast(isActive ? 'Resource activated' : 'Resource deactivated', 'success');
       load();
     } catch (err) { Admin.toastError(err); load(); }
@@ -207,7 +211,7 @@
     });
     if (!ok) return;
     try {
-      await Admin.api.del(`/master-rbac/resources/${r.id}`);
+      await apiV2.del(`/master-rbac/resources/${r.id}`);
       Admin.toast('Resource deleted', 'success');
       load();
     } catch (err) { Admin.toastError(err); }
