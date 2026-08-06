@@ -262,7 +262,6 @@
       document.getElementById('btnCopyFrom').addEventListener('click', copyFromRole);
       document.getElementById('btnGrantAll').addEventListener('click', () => bulkSetAll(true));
       document.getElementById('btnRevokeAll').addEventListener('click', () => bulkSetAll(false));
-      document.getElementById('btnEffective').addEventListener('click', openEffectiveModal);
     }
 
     async function loadGrantsForRole(usertypeId) {
@@ -282,51 +281,19 @@
       document.getElementById('matrixGroups').innerHTML = `<div class="card"><div class="table-empty">Loading role matrix…</div></div>`;
     }
 
-    // ---- Tree grouping (v2: resources carry parentId) ---------------------
-    // Each top-level resource (parentId === null) becomes its own card/group;
-    // its entire descendant subtree renders inside that card as indented rows,
-    // so the matrix mirrors the real module → sub_module → page → api tree
-    // instead of a flat, arbitrary resourceType bucket.
-    function buildRootGroups() {
-      const byParent = {};
-      resources.forEach((r) => { const k = r.parentId ?? 'root'; (byParent[k] = byParent[k] || []).push(r); });
-      Object.values(byParent).forEach((g) => g.sort((a, b) => String(a.resourceName).localeCompare(String(b.resourceName))));
-
-      const groups = [];
-      const visiting = new Set();
-      function collect(id, depth, bucket) {
-        (byParent[id] || []).forEach((r) => {
-          if (visiting.has(r.id)) return;
-          visiting.add(r.id);
-          bucket.push({ ...r, depth });
-          collect(r.id, depth + 1, bucket);
-        });
-      }
-      (byParent.root || []).forEach((root) => {
-        visiting.add(root.id);
-        const bucket = [{ ...root, depth: 0 }];
-        collect(root.id, 1, bucket);
-        groups.push({ rootId: root.id, rootName: root.resourceName, rootType: root.resourceType, rows: bucket });
-      });
-      // Resources whose parent chain is broken/missing (shouldn't normally
-      // happen) still need a home — surface them as their own single-row group.
-      const grouped = new Set(groups.flatMap((g) => g.rows.map((r) => r.id)));
-      resources.forEach((r) => {
-        if (!grouped.has(r.id)) groups.push({ rootId: r.id, rootName: r.resourceName, rootType: r.resourceType, rows: [{ ...r, depth: 0 }] });
-      });
+    function groupByType(list) {
+      const groups = {};
+      list.forEach((r) => { (groups[r.resourceType] = groups[r.resourceType] || []).push(r); });
       return groups;
     }
 
     function renderMatrix() {
-      const groups = buildRootGroups();
+      const groups = groupByType(resources);
       const container = document.getElementById('matrixGroups');
-      container.innerHTML = groups.map((group) => `
-        <div class="card" style="margin-bottom:18px;" data-root-id="${group.rootId}">
+      container.innerHTML = Object.entries(groups).map(([type, list]) => `
+        <div class="card" style="margin-bottom:18px;" data-type="${Admin.escapeHtml(type)}">
           <div class="module-group-header">
-            <span class="module-group-title">${ICON.folder} ${Admin.escapeHtml(group.rootName)}
-              <span class="badge-outline" style="margin-left:6px;">${Admin.escapeHtml((group.rootType || '').toLowerCase())}</span>
-              <span class="count-pill-soft">${group.rows.length} Resource${group.rows.length === 1 ? '' : 's'}</span>
-            </span>
+            <span class="module-group-title">${ICON.folder} ${Admin.escapeHtml(type)} <span class="count-pill-soft">${list.length} Resources</span></span>
             <span class="all-none-links">
               <button class="link-all" data-group-act="all">✓ All</button>
               <button class="link-none" data-group-act="none">✕ None</button>
@@ -341,12 +308,9 @@
                 </tr>
               </thead>
               <tbody>
-                ${group.rows.map((r) => `
+                ${list.map((r) => `
                   <tr data-resource-id="${r.id}">
-                    <td class="matrix-resource-cell" style="padding-left:${14 + r.depth * 18}px;">
-                      ${r.depth > 0 ? '<span class="tree-branch">└</span>' : ''}<strong>${Admin.escapeHtml(r.resourceName)}</strong>
-                      <span>${Admin.escapeHtml((r.resourceType || '').toLowerCase())}${r.description ? ' · ' + Admin.escapeHtml(r.description) : ''}</span>
-                    </td>
+                    <td class="matrix-resource-cell"><strong>${Admin.escapeHtml(r.resourceName)}</strong><span>${Admin.escapeHtml(r.description || '')}</span></td>
                     ${permissions.map((p) => {
                       const g = grantMap[`${r.id}:${p.id}`];
                       const checked = !!(g && g.isAllowed);
@@ -366,8 +330,8 @@
       container.querySelectorAll('[data-group-act]').forEach((btn) => {
         btn.addEventListener('click', (e) => {
           const card = e.target.closest('.card');
-          const rootId = Number(card.dataset.rootId);
-          setGroupAll(rootId, btn.dataset.groupAct === 'all');
+          const type = card.dataset.type;
+          setGroupAll(type, btn.dataset.groupAct === 'all');
         });
       });
     }
@@ -389,27 +353,14 @@
       }
     }
 
-    function subtreeIds(rootId) {
-      const ids = new Set([rootId]);
-      let frontier = [rootId];
-      while (frontier.length) {
-        const next = resources.filter((r) => frontier.includes(r.parentId)).map((r) => r.id);
-        next.forEach((n) => ids.add(n));
-        frontier = next;
-      }
-      return ids;
-    }
-
-    async function setGroupAll(rootId, isAllowed) {
+    async function setGroupAll(type, isAllowed) {
       const usertypeId = Number(document.getElementById('matrixRole').value);
-      const ids = subtreeIds(rootId);
-      const grants = resources.filter((r) => ids.has(r.id))
+      const grants = resources.filter((r) => r.resourceType === type)
         .flatMap((r) => permissions.map((p) => ({ resourceId: r.id, permissionId: p.id, isAllowed })));
       if (!grants.length) return;
-      const rootName = resources.find((r) => r.id === rootId)?.resourceName || `#${rootId}`;
       try {
         await Admin.api.post(`/master-rbac/usertypes/${usertypeId}/grants/bulk`, { grants });
-        Admin.toast(`${rootName} ${isAllowed ? 'granted' : 'revoked'} for all permissions`, 'success');
+        Admin.toast(`${type} ${isAllowed ? 'granted' : 'revoked'} for all permissions`, 'success');
         await loadGrantsForRole(usertypeId);
       } catch (err) { Admin.toastError(err); }
     }
@@ -463,60 +414,6 @@
         Admin.toastError(err);
       } finally {
         Admin.setButtonLoading(btn, false);
-      }
-    }
-
-    // ---- Effective permissions viewer (v2: explicit + cascade) ------------
-    function openEffectiveModal() {
-      const currentRoleId = document.getElementById('matrixRole').value;
-      Admin.openModal(`
-        <div class="modal-header"><h3>Effective permissions</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label for="eff-usertype">Role</label>
-            <select id="eff-usertype">
-              ${usertypes.map((u) => `<option value="${u.id}" ${String(u.id) === String(currentRoleId) ? 'selected' : ''}>${Admin.escapeHtml(u.typeName || u.code || u.name)}</option>`).join('')}
-            </select>
-          </div>
-          <label class="checkbox-row" style="margin-bottom:10px;">
-            <input type="checkbox" id="eff-cascade" checked>
-            Include inherited "view" (parent resources made visible because a child is allowed)
-          </label>
-          <p class="hint" style="margin-top:-6px;">Cascade view is for sidebar/menu visibility only — action buttons still check the exact resource's own explicit grant, never the inherited one.</p>
-          <div id="eff-results"></div>
-        </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-act="close">Close</button></div>
-      `);
-      const backdrop = document.getElementById('modalBackdrop');
-      backdrop.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener('click', Admin.closeModal));
-      backdrop.querySelector('#eff-usertype').addEventListener('change', loadEffective);
-      backdrop.querySelector('#eff-cascade').addEventListener('change', loadEffective);
-      loadEffective();
-    }
-
-    async function loadEffective() {
-      const id = document.getElementById('eff-usertype').value;
-      const cascade = document.getElementById('eff-cascade').checked;
-      const box = document.getElementById('eff-results');
-      if (!id) { box.innerHTML = ''; return; }
-      box.innerHTML = `<p class="hint">Loading…</p>`;
-      try {
-        const path = cascade
-          ? `/master-rbac/usertypes/${id}/effective-permissions/menu`
-          : `/master-rbac/usertypes/${id}/effective-permissions`;
-        const res = await Admin.api.get(path);
-        const list = res.data || [];
-        box.innerHTML = list.length
-          ? `<div class="table-wrap"><table><thead><tr><th>Resource</th><th>Permission</th><th></th></tr></thead><tbody>${
-              list.map((p) => `<tr>
-                <td>${Admin.escapeHtml(p.resourceName || p.resource || '')}</td>
-                <td><code>${Admin.escapeHtml(p.permissionCode || p.permissionName || p.permission || '')}</code></td>
-                <td>${p.isImplicit ? '<span class="badge badge-indigo">Inherited (view)</span>' : '<span class="badge badge-green">Explicit</span>'}</td>
-              </tr>`).join('')
-            }</tbody></table></div>`
-          : `<p class="hint">No active, allowed grants for this role.</p>`;
-      } catch (err) {
-        box.innerHTML = `<div class="form-errors">${Admin.escapeHtml(err.message)}</div>`;
       }
     }
 

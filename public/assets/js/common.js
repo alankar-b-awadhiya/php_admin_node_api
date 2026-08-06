@@ -17,7 +17,8 @@ const Admin = (function () {
    * one silent refresh (deduped across concurrent callers) before retrying
    * the original request once.
    */
-  async function request(path, { method = 'GET', body, retry = true } = {}) {
+  async function request(path, { method = 'GET', body, retry = true, base } = {}) {
+    const root = base || BASE;
     const opts = {
       method,
       credentials: 'include',
@@ -27,14 +28,14 @@ const Admin = (function () {
 
     let res;
     try {
-      res = await fetch(BASE + path, opts);
+      res = await fetch(root + path, opts);
     } catch (e) {
       throw new ApiError(0, 'Could not reach the API. Check your connection or the API_BASE_URL in config.php.');
     }
 
     if (res.status === 401 && retry && !path.startsWith('/auth/login') && !path.startsWith('/auth/refresh')) {
       const ok = await silentRefresh();
-      if (ok) return request(path, { method, body, retry: false });
+      if (ok) return request(path, { method, body, retry: false, base });
       goToLogin();
       throw new ApiError(401, 'Session expired');
     }
@@ -75,13 +76,22 @@ const Admin = (function () {
   }
 
   // ---- Public HTTP verbs ----------------------------------------------
+  // Every verb accepts an optional trailing `opts` ({ base }) to target a
+  // different API version than the page default (e.g. products/attributes
+  // pages target v2 - see apiBase() below). Omit it and behavior is
+  // unchanged from before.
   const api = {
-    get: (path) => request(path),
-    post: (path, body) => request(path, { method: 'POST', body }),
-    put: (path, body) => request(path, { method: 'PUT', body }),
-    patch: (path, body) => request(path, { method: 'PATCH', body }),
-    del: (path) => request(path, { method: 'DELETE' }),
+    get: (path, opts) => request(path, opts),
+    post: (path, body, opts) => request(path, { method: 'POST', body, ...opts }),
+    put: (path, body, opts) => request(path, { method: 'PUT', body, ...opts }),
+    patch: (path, body, opts) => request(path, { method: 'PATCH', body, ...opts }),
+    del: (path, opts) => request(path, { method: 'DELETE', ...opts }),
   };
+
+  /** Builds an absolute API root for a specific version, e.g. apiBase('v2') -> 'http://host/api/v2'. Falls back to swapping the version segment on the default BASE. */
+  function apiBase(version) {
+    return BASE.replace(/\/v\d+$/, '/' + version);
+  }
 
   /**
    * Multipart form upload (file inputs). Unlike request(), this does NOT set
@@ -90,17 +100,18 @@ const Admin = (function () {
    * Shares the same cookie-based auth + one-time silent-refresh-and-retry
    * behavior as request().
    */
-  async function requestForm(path, formData, { method = 'POST', retry = true } = {}) {
+  async function requestForm(path, formData, { method = 'POST', retry = true, base } = {}) {
+    const root = base || BASE;
     let res;
     try {
-      res = await fetch(BASE + path, { method, credentials: 'include', body: formData });
+      res = await fetch(root + path, { method, credentials: 'include', body: formData });
     } catch (e) {
       throw new ApiError(0, 'Could not reach the API. Check your connection or the API_BASE_URL in config.php.');
     }
 
     if (res.status === 401 && retry) {
       const ok = await silentRefresh();
-      if (ok) return requestForm(path, formData, { method, retry: false });
+      if (ok) return requestForm(path, formData, { method, retry: false, base });
       goToLogin();
       throw new ApiError(401, 'Session expired');
     }
@@ -114,7 +125,7 @@ const Admin = (function () {
     }
     return json || { success: true, data: null };
   }
-  api.uploadForm = (path, formData, { method = 'POST' } = {}) => requestForm(path, formData, { method });
+  api.uploadForm = (path, formData, opts = {}) => requestForm(path, formData, { method: 'POST', ...opts });
 
   // ---- Auth guard --------------------------------------------------------
   let cachedMe = null;
@@ -265,7 +276,7 @@ const Admin = (function () {
   }
 
   return {
-    api, requireAuth, getMe, isUsertype, logout,
+    api, apiBase, requireAuth, getMe, isUsertype, logout,
     toast, toastError, openModal, closeModal, confirmAction,
     escapeHtml, formatDate, timeAgo, badge, debounce, qs, setButtonLoading,
     ApiError,

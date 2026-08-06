@@ -6,11 +6,6 @@
  *   PATCH    /master-rbac/grants/:id/status
  *   DELETE   /master-rbac/grants/:id  (SUPERADMIN only)
  *   GET      /master-rbac/usertypes/:usertypeId/effective-permissions
- *   GET      /master-rbac/usertypes/:usertypeId/effective-permissions/menu
- *            (v2 — cascade view: explicit grants PLUS resources that only get
- *            implicit "view" because a child resource has an allowed grant.
- *            Purely for sidebar/menu visibility, never for action authorization —
- *            the old /effective-permissions endpoint stays available for that.)
  */
 (function () {
   let rows = [];
@@ -35,7 +30,7 @@
   async function loadResources() {
     const res = await Admin.api.get('/master-rbac/resources');
     resources = res.data;
-    fillResourceSelect('resourceFilter', 'All resources');
+    fillSelect('resourceFilter', resources, 'id', 'resourceName', 'All resources');
   }
   async function loadPermissions() {
     const res = await Admin.api.get('/master-rbac/permissions');
@@ -45,37 +40,6 @@
   function fillSelect(id, items, valueKey, labelKey, placeholder) {
     const sel = document.getElementById(id);
     sel.innerHTML = `<option value="">${placeholder}</option>` + items.map((i) => `<option value="${i[valueKey]}">${Admin.escapeHtml(i[labelKey])}</option>`).join('');
-  }
-
-  // ---- Tree helpers (resources now carry parentId — v2) -------------------
-  // Depth-first ordering purely for display so parent/child resources are
-  // visually grouped in the dropdowns instead of a flat alphabetical soup.
-  function resourceTreeOrder() {
-    const byParent = {};
-    resources.forEach((r) => { const k = r.parentId ?? 'root'; (byParent[k] = byParent[k] || []).push(r); });
-    Object.values(byParent).forEach((g) => g.sort((a, b) => String(a.resourceName).localeCompare(String(b.resourceName))));
-    const ordered = [];
-    const visiting = new Set();
-    function walk(key, depth) {
-      (byParent[key] || []).forEach((r) => {
-        if (visiting.has(r.id)) return;
-        visiting.add(r.id);
-        ordered.push({ ...r, depth });
-        walk(r.id, depth + 1);
-      });
-    }
-    walk('root', 0);
-    const seen = new Set(ordered.map((r) => r.id));
-    resources.forEach((r) => { if (!seen.has(r.id)) ordered.push({ ...r, depth: 0 }); });
-    return ordered;
-  }
-
-  function fillResourceSelect(id, placeholder) {
-    const sel = document.getElementById(id);
-    const ordered = resourceTreeOrder();
-    sel.innerHTML = `<option value="">${placeholder}</option>` + ordered.map((r) =>
-      `<option value="${r.id}">${'—'.repeat(r.depth)}${r.depth ? ' ' : ''}${Admin.escapeHtml(r.resourceName)} (${Admin.escapeHtml((r.resourceType || '').toLowerCase())})</option>`
-    ).join('');
   }
 
   function wireToolbar() {
@@ -146,7 +110,7 @@
           </div>
           <div class="form-group">
             <label for="f-resourceId">Resource</label>
-            <select id="f-resourceId" required></select>
+            <select id="f-resourceId" required>${resources.map((r) => `<option value="${r.id}">${Admin.escapeHtml(r.resourceName)} (${Admin.escapeHtml(r.resourceType)})</option>`).join('')}</select>
           </div>
           <div class="form-group">
             <label for="f-permissionId">Permission</label>
@@ -170,7 +134,6 @@
       return;
     }
     Admin.openModal(formHtml());
-    fillResourceSelect('f-resourceId', '— Select a resource —');
     const backdrop = document.getElementById('modalBackdrop');
     backdrop.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener('click', Admin.closeModal));
     backdrop.querySelector('#grantForm').addEventListener('submit', async (e) => {
@@ -230,7 +193,7 @@
     } catch (err) { Admin.toastError(err); }
   }
 
-  // ---- Effective permissions viewer (v2: explicit + cascade) --------------
+  // ---- Effective permissions viewer --------------------------------------
   function openEffectiveModal() {
     Admin.openModal(`
       <div class="modal-header"><h3>Effective permissions</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
@@ -242,45 +205,29 @@
             ${usertypes.map((u) => `<option value="${u.id}">${Admin.escapeHtml(u.typeName)}</option>`).join('')}
           </select>
         </div>
-        <label class="checkbox-row" style="margin-bottom:10px;">
-          <input type="checkbox" id="eff-cascade" checked>
-          Include inherited "view" (parent resources made visible because a child is allowed)
-        </label>
-        <p class="hint" style="margin-top:-6px;">This cascade view is for sidebar/menu visibility only — action buttons still check the exact resource's own explicit grant.</p>
         <div id="eff-results"></div>
       </div>
       <div class="modal-footer"><button class="btn btn-secondary" data-act="close">Close</button></div>
     `);
     const backdrop = document.getElementById('modalBackdrop');
     backdrop.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener('click', Admin.closeModal));
-    backdrop.querySelector('#eff-usertype').addEventListener('change', loadEffective);
-    backdrop.querySelector('#eff-cascade').addEventListener('change', loadEffective);
-  }
-
-  async function loadEffective() {
-    const id = document.getElementById('eff-usertype').value;
-    const cascade = document.getElementById('eff-cascade').checked;
-    const box = document.getElementById('eff-results');
-    if (!id) { box.innerHTML = ''; return; }
-    box.innerHTML = `<p class="hint">Loading…</p>`;
-    try {
-      const path = cascade
-        ? `/master-rbac/usertypes/${id}/effective-permissions/menu`
-        : `/master-rbac/usertypes/${id}/effective-permissions`;
-      const res = await Admin.api.get(path);
-      const list = res.data || [];
-      box.innerHTML = list.length
-        ? `<div class="table-wrap"><table><thead><tr><th>Resource</th><th>Permission</th><th></th></tr></thead><tbody>${
-            list.map((p) => `<tr>
-              <td>${Admin.escapeHtml(p.resourceName || p.resource || '')}</td>
-              <td><code>${Admin.escapeHtml(p.permissionCode || p.permissionName || p.permission || '')}</code></td>
-              <td>${p.isImplicit ? '<span class="badge badge-indigo">Inherited (view)</span>' : '<span class="badge badge-green">Explicit</span>'}</td>
-            </tr>`).join('')
-          }</tbody></table></div>`
-        : `<p class="hint">No active, allowed grants for this role.</p>`;
-    } catch (err) {
-      box.innerHTML = `<div class="form-errors">${Admin.escapeHtml(err.message)}</div>`;
-    }
+    backdrop.querySelector('#eff-usertype').addEventListener('change', async (e) => {
+      const id = e.target.value;
+      const box = document.getElementById('eff-results');
+      if (!id) { box.innerHTML = ''; return; }
+      box.innerHTML = `<p class="hint">Loading…</p>`;
+      try {
+        const res = await Admin.api.get(`/master-rbac/usertypes/${id}/effective-permissions`);
+        const list = res.data || [];
+        box.innerHTML = list.length
+          ? `<div class="table-wrap"><table><thead><tr><th>Resource</th><th>Permission</th></tr></thead><tbody>${
+              list.map((p) => `<tr><td>${Admin.escapeHtml(p.resourceName || p.resource || '')}</td><td><code>${Admin.escapeHtml(p.permissionCode || p.permissionName || p.permission || '')}</code></td></tr>`).join('')
+            }</tbody></table></div>`
+          : `<p class="hint">No active, allowed grants for this role.</p>`;
+      } catch (err) {
+        box.innerHTML = `<div class="form-errors">${Admin.escapeHtml(err.message)}</div>`;
+      }
+    });
   }
 
   init();

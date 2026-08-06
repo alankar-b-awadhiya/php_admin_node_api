@@ -408,8 +408,6 @@ html { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb-start) transpa
   font-size: 11.5px; font-weight: 600; border: 1px solid #c3d0f7; color: #3b52c4; background: #fff;
 }
 .text-refid { color: #c22a72; font-weight: 650; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
-.tree-indent { display: inline-block; }
-.tree-branch { display: inline-block; color: var(--text-muted); margin-right: 5px; font-family: monospace; }
 .text-code { color: #c22a72; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 600; }
 
 /* ---------- Circular icon action buttons (view/edit/toggle/delete) ---------- */
@@ -844,6 +842,20 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
 .variant-card-meta { font-size: 12.3px; color: var(--text-muted); margin-top: 5px; display: flex; gap: 14px; flex-wrap: wrap; }
 .variant-card-meta strong { color: var(--text); }
 .variant-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.variant-card-listings-toggle { margin-top: 10px; }
+.variant-listings-wrap { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.listings-table-wrap { overflow-x: auto; }
+.listings-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.listings-table th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .02em;
+  color: var(--text-faint); font-weight: 650; padding: 6px 10px; border-bottom: 1px solid var(--line);
+}
+.listings-table td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.listings-table tr:last-child td { border-bottom: none; }
+.price-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.price-now { font-weight: 650; color: var(--text); }
+.price-strike { color: var(--text-faint); text-decoration: line-through; font-size: 11.5px; }
+.opt-label { color: var(--text-faint); font-size: 11.5px; font-style: italic; }
 .attrval-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
 .attrval-row:last-child { border-bottom: none; }
 .attrval-row-lead { display: flex; align-items: center; gap: 10px; }

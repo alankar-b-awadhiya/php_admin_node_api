@@ -1,12 +1,14 @@
 /**
  * product-attributes.js — Product Attributes page (maps to
  * /products/attributes[...]), per the Products section of the API
- * reference: aba_main_db `product_attributes` + `product_attribute_values`.
- * Bearer required on every route.
+ * reference: aba_ecom_db `product_attributes` + `product_attribute_values`
+ * (moved out of aba_main_db as part of the ecommerce-db split — same
+ * request/response shape as before, only the DB moved). Bearer required on
+ * every route.
  *
  * ---------------------------------------------------------------------------
  * API map — every endpoint this file calls. Update paths here ONLY.
- *   Node API: src/api/v1/index.js, src/domains/products/v1/products.routes.js
+ *   Node API: src/api/v2/index.js, src/domains/products/v2/products.routes.js
  * ---------------------------------------------------------------------------
  *
  *   GET    API.list                  - list attributes (?search)
@@ -20,6 +22,16 @@
  *   DELETE API.valueDelete(valueId)  - delete (422 if assigned to a variant)
  */
 (function () {
+  // All product-domain data now lives in aba_ecom_db, served under /api/v2 -
+  // every call in this file goes through apiV2 instead of Admin.api directly.
+  const API_V2_BASE = Admin.apiBase('v2');
+  const apiV2 = {
+    get: (path) => Admin.api.get(path, { base: API_V2_BASE }),
+    post: (path, body) => Admin.api.post(path, body, { base: API_V2_BASE }),
+    patch: (path, body) => Admin.api.patch(path, body, { base: API_V2_BASE }),
+    del: (path) => Admin.api.del(path, { base: API_V2_BASE }),
+  };
+
   const API = {
     list: '/products/attributes',
     get: (id) => `/products/attributes/${id}`,
@@ -56,7 +68,7 @@
     const body = document.getElementById('attributesTableBody');
     body.innerHTML = `<tr><td colspan="4" class="table-empty">Loading attributes…</td></tr>`;
     try {
-      const res = await Admin.api.get(API.list + Admin.qs({ search: state.search }));
+      const res = await apiV2.get(API.list + Admin.qs({ search: state.search }));
       rows = res.data.attributes || [];
       renderTable();
       document.getElementById('attributesCount').textContent = `${rows.length} attribute${rows.length === 1 ? '' : 's'}`;
@@ -96,7 +108,7 @@
 
   async function loadValueCount(a) {
     try {
-      const res = await Admin.api.get(API.values(a.attributeId));
+      const res = await apiV2.get(API.values(a.attributeId));
       const values = res.data.values || [];
       const el = document.getElementById(`valcount-${a.attributeId}`);
       if (el) el.textContent = `${values.length} value${values.length === 1 ? '' : 's'}`;
@@ -148,10 +160,10 @@
       try {
         const payload = { name: document.getElementById('f-attr-name').value.trim() };
         if (a) {
-          await Admin.api.patch(API.update(a.attributeId), payload);
+          await apiV2.patch(API.update(a.attributeId), payload);
           Admin.toast('Attribute updated', 'success');
         } else {
-          await Admin.api.post(API.list, payload);
+          await apiV2.post(API.list, payload);
           Admin.toast('Attribute created', 'success');
         }
         Admin.closeModal();
@@ -175,7 +187,7 @@
     });
     if (!ok) return;
     try {
-      await Admin.api.del(API.remove(a.attributeId));
+      await apiV2.del(API.remove(a.attributeId));
       Admin.toast('Attribute deleted', 'success');
       loadList();
     } catch (err) { Admin.toastError(err); }
@@ -221,7 +233,7 @@
       const btn = document.getElementById('addValueSubmit');
       Admin.setButtonLoading(btn, true, 'Adding…');
       try {
-        await Admin.api.post(API.values(a.attributeId), {
+        await apiV2.post(API.values(a.attributeId), {
           value: document.getElementById('f-new-value').value.trim(),
           sort_order: Number(document.getElementById('f-new-value-order').value) || 0,
         });
@@ -243,7 +255,7 @@
     const el = document.getElementById('valuesList');
     if (!el) return;
     try {
-      const res = await Admin.api.get(API.values(a.attributeId));
+      const res = await apiV2.get(API.values(a.attributeId));
       currentValues = res.data.values || [];
       renderValuesList(a);
     } catch (err) {
@@ -294,7 +306,7 @@
       const newValue = row.querySelector('.inline-edit-value').value.trim();
       const newOrder = Number(row.querySelector('.inline-edit-order').value) || 0;
       try {
-        await Admin.api.patch(API.valueUpdate(v.attributeValueId), { value: newValue, sort_order: newOrder });
+        await apiV2.patch(API.valueUpdate(v.attributeValueId), { value: newValue, sort_order: newOrder });
         Admin.toast('Value updated', 'success');
         await loadValuesList(a);
       } catch (err) { Admin.toastError(err); }
@@ -310,7 +322,7 @@
     });
     if (!ok) return;
     try {
-      await Admin.api.del(API.valueDelete(v.attributeValueId));
+      await apiV2.del(API.valueDelete(v.attributeValueId));
       Admin.toast('Value deleted', 'success');
       await loadValuesList(a);
       loadValueCount(a);
