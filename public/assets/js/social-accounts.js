@@ -62,6 +62,12 @@
         { key: 'wabaId', label: 'WABA ID', placeholder: 'WhatsApp Business Account ID', required: true },
         { key: 'systemUserToken', label: 'System User Token', placeholder: 'Permanent access token', required: true, type: 'password' },
         { key: 'displayPhoneNumber', label: 'Display Phone Number', placeholder: '+91XXXXXXXXXX', required: false },
+        // Per-client webhook credentials (stored in this account's meta, not .env - each
+        // connected WhatsApp number gets its own). appSecret verifies inbound webhook
+        // signatures; webhookVerifyToken is whatever string you choose here, then paste
+        // the SAME value into Meta App Dashboard > Webhooks when subscribing this number.
+        { key: 'appSecret', label: 'Meta App Secret', placeholder: 'Meta App Dashboard > Settings > Basic', required: true, type: 'password' },
+        { key: 'webhookVerifyToken', label: 'Webhook Verify Token', placeholder: 'Pick any string - paste the same value into Meta\u2019s webhook setup', required: true },
       ],
     },
     bluesky: {

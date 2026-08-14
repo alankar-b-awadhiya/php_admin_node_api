@@ -2,9 +2,10 @@
  * social-inbox.js — Inbox page (maps to /social-inbox, aba_social_db
  * `social_inbox_conversations` + `social_inbox_messages`). Split view:
  * conversation list on the left, message thread + composer on the right.
- * Sending actually delivers to the platform via an adapter (not built) —
- * this records the outbound message row either way, same gap as posts
- * publish() and comments reply-posting.
+ * Sending delivers to the platform via an adapter (WhatsApp only so far -
+ * see socialInbox.service.js sendMessage()); a 502 from the backend means
+ * the platform rejected/failed the send - handled below with a local
+ * "Not delivered" bubble instead of a bare toast.
  *
  * ---------------------------------------------------------------------------
  * API map — Node API: src/domains/socialInbox/v1/socialInbox.routes.js
@@ -154,8 +155,35 @@
       textarea.value = '';
       await loadMessages(activeConversation.id);
       loadConversations();
-    } catch (err) { Admin.toastError(err); }
+    } catch (err) {
+      if (err.status === 502) {
+        // Platform rejected/failed the send (see socialInbox.service.js sendMessage) - no
+        // message row was inserted on the backend for this case, so show a local "Not
+        // delivered" bubble instead of a generic toast-only error, and leave the typed text in
+        // the composer so the admin can fix/retry without retyping it.
+        appendFailedMessage(text);
+        Admin.toast('Not delivered — ' + (err.message || 'the platform rejected the message'), 'error', 6000);
+      } else {
+        Admin.toastError(err);
+      }
+    }
     finally { Admin.setButtonLoading(btn, false); }
+  }
+
+  /** Renders a local-only "Not delivered" bubble for a send that failed at the platform (502). */
+  function appendFailedMessage(text) {
+    const box = document.getElementById('inboxMessages');
+    if (!box) return;
+    const emptyState = box.querySelector('.table-empty');
+    if (emptyState) emptyState.remove();
+    const el = document.createElement('div');
+    el.className = 'inbox-msg inbox-msg-outbound inbox-msg-failed';
+    el.innerHTML = `
+      <div>${Admin.escapeHtml(text)}</div>
+      <div class="inbox-msg-time">Not delivered</div>
+    `;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
   }
 
   init();
