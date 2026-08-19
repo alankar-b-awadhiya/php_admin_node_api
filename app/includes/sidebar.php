@@ -43,6 +43,9 @@ $navGroups = [
     ['key' => 'notification', 'href' => 'notification.php', 'label' => 'Notifications', 'icon' => 'bell'],
     ['key' => 'webpush', 'href' => 'webpush.php', 'label' => 'Web Push', 'icon' => 'device'],
   ]],
+  ['key' => 'system', 'title' => 'System', 'items' => [
+    ['key' => 'schedulers', 'href' => 'schedulers.php', 'label' => 'Scheduled Tasks', 'icon' => 'calendar'],
+  ]],
   ['key' => 'settings', 'title' => 'Settings', 'items' => [
     ['key' => 'sessions', 'href' => 'sessions.php', 'label' => 'My Sessions', 'icon' => 'device'],
     ['key' => 'settings', 'href' => 'settings.php', 'label' => 'Site Settings', 'icon' => 'gear'],
