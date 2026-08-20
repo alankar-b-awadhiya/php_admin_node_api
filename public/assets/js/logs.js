@@ -1,0 +1,593 @@
+/**
+ * logs.js — System Logs page (maps to /logs.php).
+ *
+ * ---------------------------------------------------------------------------
+ * API map — Node API: src/domains/systemLogs/v1/systemLogs.routes.js
+ * ---------------------------------------------------------------------------
+ *   GET   /system-logs/errors           - ?level,?from,?to,?requestId,?search,?page,?limit
+ *   GET   /system-logs/api-requests     - ?statusCode,?method,?endpoint,?from,?to,?requestId,?userId,?page,?limit
+ *   GET   /system-logs/auth             - ?event,?userId,?ip,?from,?to,?page,?limit
+ *   GET   /system-logs/emails           - ?status,?to,?from,?to,?page,?limit
+ *   GET   /system-logs/suspicious       - ?eventType,?severity,?reviewed,?ip,?userId,?from,?to,?page,?limit
+ *   PATCH /system-logs/suspicious/:id/review
+ *   GET   /system-logs/debug            - ?requestId,?search,?from,?to,?page,?limit
+ *   GET   /system-logs/external-api     - ?provider,?success,?from,?to,?page,?limit
+ *   GET   /system-logs/jobs             - ?status,?taskType,?from,?to,?page,?limit
+ *   GET   /system-logs/slow-queries     - ?from,?to,?requestId,?page,?limit
+ *
+ * Every list endpoint returns { data: { rows: [...], pagination: { total, page, limit, totalPages } } }.
+ *
+ * This file is deliberately config-driven (TABS below) — one shared table/
+ * filter/pagination/export engine, each tab just describes its filters,
+ * columns, and how to render a detail modal. Add a new log type by adding
+ * one entry to TABS, nothing else changes.
+ */
+(function () {
+  const badgeMap = (value, map, fallbackClass = 'badge-gray') => {
+    const cls = map[value] || fallbackClass;
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${Admin.escapeHtml(String(value ?? '—'))}</span>`;
+  };
+
+  const truncate = (s, n = 90) => {
+    if (!s) return '—';
+    const str = String(s);
+    return str.length > n ? Admin.escapeHtml(str.slice(0, n)) + '…' : Admin.escapeHtml(str);
+  };
+
+  function prettyJson(value) {
+    if (value === null || value === undefined || value === '') return '<span class="cell-muted">—</span>';
+    let parsed = value;
+    if (typeof value === 'string') {
+      try { parsed = JSON.parse(value); } catch (e) { return `<pre class="log-body-pre">${Admin.escapeHtml(value)}</pre>`; }
+    }
+    return `<pre class="log-body-pre">${Admin.escapeHtml(JSON.stringify(parsed, null, 2))}</pre>`;
+  }
+
+  const LEVEL_BADGES = { debug: 'badge-gray', info: 'badge-sky', warning: 'badge-amber', error: 'badge-coral', critical: 'badge-solid-coral' };
+  const SEVERITY_BADGES = { low: 'badge-gray', medium: 'badge-amber', high: 'badge-coral', critical: 'badge-solid-coral' };
+  const AUTH_EVENT_BADGES = { login_success: 'badge-green', login_fail: 'badge-coral', logout: 'badge-gray', password_reset: 'badge-indigo', token_refresh: 'badge-sky' };
+  const EMAIL_STATUS_BADGES = { sent: 'badge-green', failed: 'badge-coral', queued: 'badge-amber' };
+  const JOB_STATUS_BADGES = { running: 'badge-amber', success: 'badge-green', failed: 'badge-coral', skipped: 'badge-gray' };
+
+  function statusCodeBadge(code) {
+    if (code === null || code === undefined) return '<span class="cell-muted">—</span>';
+    const cls = code >= 500 ? 'badge-solid-coral' : code >= 400 ? 'badge-coral' : code >= 300 ? 'badge-amber' : 'badge-green';
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${code}</span>`;
+  }
+
+  // ---- Shared detail-modal helper ------------------------------------------
+  function openDetailModal(title, rows) {
+    // rows: [{label, value(html)}]
+    Admin.openModal(`
+      <div class="modal-header"><h3>${Admin.escapeHtml(title)}</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
+      <div class="modal-body">
+        ${rows.map((r) => `
+          <div style="margin-bottom:12px;">
+            <label style="font-weight:650;font-size:13px;display:block;margin-bottom:4px;">${Admin.escapeHtml(r.label)}</label>
+            ${r.value}
+          </div>
+        `).join('')}
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-act="close">Close</button></div>
+    `);
+    document.getElementById('modalBackdrop').querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+  }
+
+  // ===========================================================================
+  // TAB DEFINITIONS
+  // ===========================================================================
+  const TABS = {
+    errors: {
+      label: 'Errors',
+      path: '/system-logs/errors',
+      filters: [
+        { id: 'level', label: 'Level', type: 'select', options: ['', 'debug', 'info', 'warning', 'error', 'critical'] },
+        { id: 'search', label: 'Search message', type: 'text' },
+        { id: 'requestId', label: 'Request ID', type: 'text' },
+      ],
+      columns: ['Level', 'Message', 'File:Line', 'User', 'Request URI', 'When', ''],
+      row(r) {
+        return `
+          <td>${badgeMap(r.level, LEVEL_BADGES)}</td>
+          <td>${truncate(r.message, 70)}</td>
+          <td class="cell-muted">${r.file ? Admin.escapeHtml(r.file) + ':' + (r.line ?? '?') : '—'}</td>
+          <td class="cell-muted">${r.user_id ?? '—'}</td>
+          <td class="cell-muted">${truncate(r.request_uri, 40)}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Error #${r.id}`, [
+          { label: 'Message', value: `<p>${Admin.escapeHtml(r.message || '—')}</p>` },
+          { label: 'Level / Request ID', value: `${badgeMap(r.level, LEVEL_BADGES)} <code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+          { label: 'File', value: `<p class="cell-muted">${Admin.escapeHtml(r.file || '—')}${r.line ? ':' + r.line : ''}</p>` },
+          { label: 'Request URI', value: `<p class="cell-muted">${Admin.escapeHtml(r.request_uri || '—')}</p>` },
+          { label: 'Context', value: prettyJson(r.context) },
+          { label: 'Stack Trace', value: r.trace ? `<pre class="log-body-pre">${Admin.escapeHtml(r.trace)}</pre>` : '<span class="cell-muted">—</span>' },
+        ]);
+      },
+    },
+
+    apiRequests: {
+      label: 'API Requests',
+      path: '/system-logs/api-requests',
+      filters: [
+        { id: 'statusCode', label: 'Status code', type: 'text', placeholder: 'e.g. 500' },
+        { id: 'method', label: 'Method', type: 'select', options: ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
+        { id: 'endpoint', label: 'Endpoint contains', type: 'text' },
+        { id: 'requestId', label: 'Request ID', type: 'text' },
+      ],
+      columns: ['Method', 'Endpoint', 'Status', 'Time', 'User', 'IP', 'When', ''],
+      row(r) {
+        return `
+          <td><span class="badge-outline">${Admin.escapeHtml(r.method || '—')}</span></td>
+          <td class="cell-muted">${truncate(r.endpoint, 50)}</td>
+          <td>${statusCodeBadge(r.response_code)}</td>
+          <td class="cell-muted">${r.response_time != null ? r.response_time + 'ms' : '—'}</td>
+          <td class="cell-muted">${r.user_id ?? '—'}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`API Request #${r.id}`, [
+          { label: 'Request', value: `<span class="badge-outline">${Admin.escapeHtml(r.method)}</span> ${Admin.escapeHtml(r.endpoint)}` },
+          { label: 'Status / Duration', value: `${statusCodeBadge(r.response_code)} · ${r.response_time ?? '—'}ms` },
+          { label: 'User / IP', value: `<p class="cell-muted">User #${r.user_id ?? '—'} · ${Admin.escapeHtml(r.ip_address || '—')}</p>` },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+          { label: 'Request Body', value: prettyJson(r.request_body) },
+        ]);
+      },
+    },
+
+    auth: {
+      label: 'Auth',
+      path: '/system-logs/auth',
+      filters: [
+        { id: 'event', label: 'Event', type: 'select', options: ['', 'login_success', 'login_fail', 'logout', 'password_reset', 'token_refresh'] },
+        { id: 'userId', label: 'User ID', type: 'text' },
+        { id: 'ip', label: 'IP address', type: 'text' },
+      ],
+      columns: ['Event', 'User', 'IP', 'Notes', 'When', ''],
+      row(r) {
+        return `
+          <td>${badgeMap(r.event, AUTH_EVENT_BADGES)}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.username || '—')} ${r.user_id ? '(#' + r.user_id + ')' : ''}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</td>
+          <td class="cell-muted">${truncate(r.notes, 40)}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Auth Event #${r.id}`, [
+          { label: 'Event', value: badgeMap(r.event, AUTH_EVENT_BADGES) },
+          { label: 'User', value: `<p class="cell-muted">${Admin.escapeHtml(r.username || '—')} (#${r.user_id ?? '—'})</p>` },
+          { label: 'IP / User Agent', value: `<p class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</p><p class="cell-muted">${Admin.escapeHtml(r.user_agent || '—')}</p>` },
+          { label: 'Notes', value: `<p>${Admin.escapeHtml(r.notes || '—')}</p>` },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+        ]);
+      },
+    },
+
+    emails: {
+      label: 'Emails',
+      path: '/system-logs/emails',
+      filters: [
+        { id: 'status', label: 'Status', type: 'select', options: ['', 'sent', 'failed', 'queued'] },
+        { id: 'to', label: 'To (contains)', type: 'text', apiParam: 'toEmail' },
+      ],
+      columns: ['To', 'Subject', 'Template', 'Status', 'Error', 'When', ''],
+      row(r) {
+        return `
+          <td class="cell-muted">${Admin.escapeHtml(r.to_email || '—')}</td>
+          <td class="cell-muted">${truncate(r.subject, 40)}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.template || '—')}</td>
+          <td>${badgeMap(r.status, EMAIL_STATUS_BADGES)}</td>
+          <td class="cell-muted">${truncate(r.error, 30)}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Email #${r.id}`, [
+          { label: 'To / Subject', value: `<p>${Admin.escapeHtml(r.to_email || '—')}</p><p class="cell-muted">${Admin.escapeHtml(r.subject || '—')}</p>` },
+          { label: 'Status', value: badgeMap(r.status, EMAIL_STATUS_BADGES) },
+          { label: 'Template', value: `<p class="cell-muted">${Admin.escapeHtml(r.template || '—')}</p>` },
+          { label: 'Error', value: r.error ? `<div class="form-errors"><strong>${Admin.escapeHtml(r.error)}</strong></div>` : '<span class="cell-muted">—</span>' },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+        ]);
+      },
+    },
+
+    suspicious: {
+      label: 'Suspicious Activity',
+      path: '/system-logs/suspicious',
+      filters: [
+        { id: 'eventType', label: 'Event type', type: 'select', options: ['', 'failed_login_burst', 'brute_force_otp', 'account_enumeration', 'token_replay', 'invalid_token_reuse', 'session_hijack_suspected', 'permission_denied_repeated', 'rate_limit_exceeded', 'ip_blacklisted', 'sql_injection_pattern', 'xss_pattern', 'path_traversal_pattern', 'unusual_request_volume', 'geo_anomaly', 'other'] },
+        { id: 'severity', label: 'Severity', type: 'select', options: ['', 'low', 'medium', 'high', 'critical'] },
+        { id: 'reviewed', label: 'Reviewed', type: 'select', options: [{ v: '', l: 'All' }, { v: '0', l: 'Unreviewed' }, { v: '1', l: 'Reviewed' }] },
+        { id: 'ip', label: 'IP address', type: 'text' },
+      ],
+      columns: ['Event', 'Severity', 'IP', 'Endpoint', 'Action', 'Reviewed', 'When', ''],
+      row(r) {
+        return `
+          <td class="cell-muted">${Admin.escapeHtml(r.event_type)}</td>
+          <td>${badgeMap(r.severity, SEVERITY_BADGES)}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</td>
+          <td class="cell-muted">${truncate(r.endpoint, 35)}</td>
+          <td class="cell-muted">${Admin.escapeHtml((r.action_taken || '').replace(/_/g, ' '))}</td>
+          <td>${Admin.badge(!!r.reviewed, 'Reviewed', 'Pending')}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions">
+            <button class="btn btn-secondary btn-sm" data-act="view">View</button>
+            ${!r.reviewed ? `<button class="btn btn-success btn-sm" data-act="review">Mark Reviewed</button>` : ''}
+          </td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Suspicious Activity #${r.id}`, [
+          { label: 'Event / Severity', value: `<p class="cell-muted">${Admin.escapeHtml(r.event_type)}</p>${badgeMap(r.severity, SEVERITY_BADGES)}` },
+          { label: 'Who / Where', value: `<p class="cell-muted">User #${r.user_id ?? '—'} · ${Admin.escapeHtml(r.ip_address || '—')}</p><p class="cell-muted">${Admin.escapeHtml(r.method || '')} ${Admin.escapeHtml(r.endpoint || '—')}</p>` },
+          { label: 'Action Taken', value: `<p class="cell-muted">${Admin.escapeHtml((r.action_taken || '').replace(/_/g, ' '))}</p>` },
+          { label: 'Details', value: prettyJson(r.details) },
+          { label: 'Review Status', value: r.reviewed ? `<p class="cell-muted">Reviewed by #${r.reviewed_by ?? '—'} on ${Admin.formatDate(r.reviewed_at)}</p>` : '<span class="cell-muted">Not yet reviewed</span>' },
+        ]);
+      },
+      async onAction(act, row, reload) {
+        if (act !== 'review') return false;
+        try {
+          await Admin.api.patch(`/system-logs/suspicious/${row.id}/review`);
+          Admin.toast('Marked reviewed', 'success');
+          reload();
+        } catch (err) { Admin.toastError(err); }
+        return true;
+      },
+    },
+
+    debug: {
+      label: 'Debug',
+      path: '/system-logs/debug',
+      filters: [
+        { id: 'search', label: 'Search message', type: 'text' },
+        { id: 'requestId', label: 'Request ID', type: 'text' },
+      ],
+      columns: ['Message', 'File:Line', 'User', 'Request ID', 'When', ''],
+      row(r) {
+        return `
+          <td>${truncate(r.message, 70)}</td>
+          <td class="cell-muted">${r.file ? Admin.escapeHtml(r.file) + ':' + (r.line ?? '?') : '—'}</td>
+          <td class="cell-muted">${r.user_id ?? '—'}</td>
+          <td class="cell-muted"><code>${Admin.escapeHtml((r.request_id || '').slice(0, 8) || '—')}</code></td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Debug Log #${r.id}`, [
+          { label: 'Message', value: `<p>${Admin.escapeHtml(r.message || '—')}</p>` },
+          { label: 'File', value: `<p class="cell-muted">${Admin.escapeHtml(r.file || '—')}${r.line ? ':' + r.line : ''}</p>` },
+          { label: 'Context', value: prettyJson(r.context) },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+        ]);
+      },
+    },
+
+    externalApi: {
+      label: 'External API',
+      path: '/system-logs/external-api',
+      filters: [
+        { id: 'provider', label: 'Provider', type: 'text', placeholder: 'facebook, sms_gateway…' },
+        { id: 'success', label: 'Outcome', type: 'select', options: [{ v: '', l: 'All' }, { v: '1', l: 'Success' }, { v: '0', l: 'Failed' }] },
+      ],
+      columns: ['Direction', 'Provider', 'Endpoint', 'Status', 'Outcome', 'Duration', 'When', ''],
+      row(r) {
+        return `
+          <td><span class="badge-outline">${Admin.escapeHtml(r.direction || '—')}</span></td>
+          <td class="cell-muted">${Admin.escapeHtml(r.provider || '—')}</td>
+          <td class="cell-muted">${truncate(r.endpoint, 40)}</td>
+          <td>${statusCodeBadge(r.status_code)}</td>
+          <td>${Admin.badge(!!r.success, 'Success', 'Failed')}</td>
+          <td class="cell-muted">${r.duration_ms != null ? r.duration_ms + 'ms' : '—'}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`External API Call #${r.id}`, [
+          { label: 'Call', value: `<span class="badge-outline">${Admin.escapeHtml(r.direction)}</span> ${Admin.escapeHtml(r.provider)} — ${Admin.escapeHtml(r.method || '')} ${Admin.escapeHtml(r.endpoint || '—')}` },
+          { label: 'Outcome', value: `${statusCodeBadge(r.status_code)} ${Admin.badge(!!r.success, 'Success', 'Failed')}` },
+          { label: 'Error', value: r.error_message ? `<div class="form-errors"><strong>${Admin.escapeHtml(r.error_message)}</strong></div>` : '<span class="cell-muted">—</span>' },
+          { label: 'Related Entity', value: `<p class="cell-muted">${Admin.escapeHtml(r.related_entity_type || '—')} #${Admin.escapeHtml(r.related_entity_id || '—')}</p>` },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+        ]);
+      },
+    },
+
+    jobs: {
+      label: 'Scheduled Jobs',
+      path: '/system-logs/jobs',
+      filters: [
+        { id: 'status', label: 'Status', type: 'select', options: ['', 'running', 'success', 'failed', 'skipped'] },
+        { id: 'taskType', label: 'Task type', type: 'text' },
+      ],
+      columns: ['Job', 'Task Type', 'Status', 'Started', 'Duration', 'Error', ''],
+      row(r) {
+        return `
+          <td class="cell-muted">${Admin.escapeHtml(r.job_name || '—')}</td>
+          <td class="cell-muted">${Admin.escapeHtml(r.task_type || '—')}</td>
+          <td>${badgeMap(r.status, JOB_STATUS_BADGES)}</td>
+          <td class="cell-muted">${Admin.timeAgo(r.started_at)}</td>
+          <td class="cell-muted">${r.duration_ms != null ? (r.duration_ms / 1000).toFixed(1) + 's' : '—'}</td>
+          <td class="cell-muted">${truncate(r.error_message, 30)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Job Run — ${r.job_name || '#' + (r.run_id ?? r.id)}`, [
+          { label: 'Status', value: badgeMap(r.status, JOB_STATUS_BADGES) },
+          { label: 'Timing', value: `<p class="cell-muted">Started ${Admin.formatDate(r.started_at)}${r.finished_at ? ' · Finished ' + Admin.formatDate(r.finished_at) : ''}</p>` },
+          { label: 'Error', value: r.error_message ? `<div class="form-errors"><strong>${Admin.escapeHtml(r.error_message)}</strong></div>` : '<span class="cell-muted">—</span>' },
+          { label: 'Response Payload', value: prettyJson(r.response_payload) },
+        ]);
+      },
+    },
+
+    slowQueries: {
+      label: 'Slow Queries',
+      path: '/system-logs/slow-queries',
+      filters: [
+        { id: 'requestId', label: 'Request ID', type: 'text' },
+      ],
+      columns: ['Query', 'Duration', 'Request ID', 'When', ''],
+      row(r) {
+        return `
+          <td class="cell-muted">${truncate(r.query_text, 70)}</td>
+          <td class="cell-muted">${r.execution_time_secs != null ? r.execution_time_secs + 's' : '—'}</td>
+          <td class="cell-muted"><code>${Admin.escapeHtml((r.request_id || '').slice(0, 8) || '—')}</code></td>
+          <td class="cell-muted">${Admin.timeAgo(r.created_at)}</td>
+          <td class="cell-actions"><button class="btn btn-secondary btn-sm" data-act="view">View</button></td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Slow Query #${r.sq_id ?? r.id}`, [
+          { label: 'Query', value: `<pre class="log-body-pre">${Admin.escapeHtml(r.query_text || '—')}</pre>` },
+          { label: 'Params', value: prettyJson(r.params) },
+          { label: 'Execution Time', value: `<p>${r.execution_time_secs ?? '—'}s</p>` },
+          { label: 'Request ID', value: `<code>${Admin.escapeHtml(r.request_id || '—')}</code>` },
+        ]);
+      },
+    },
+  };
+
+  const TAB_ORDER = ['errors', 'apiRequests', 'auth', 'suspicious', 'emails', 'externalApi', 'jobs', 'slowQueries', 'debug'];
+
+  let activeTab = 'errors';
+  let filterValues = {};
+  let rows = [];
+  let page = 1;
+  const perPage = 25;
+  let lastPagination = null;
+
+  async function init() {
+    await Admin.requireAuth();
+    document.getElementById('btnRefreshLogs').addEventListener('click', () => loadList(true));
+    document.getElementById('btnExportCsv').addEventListener('click', exportCsv);
+    renderTabs();
+    renderFilterBar();
+    await loadList();
+  }
+
+  function renderTabs() {
+    const el = document.getElementById('logsTabs');
+    el.innerHTML = TAB_ORDER.map((key) => `
+      <button class="tab-btn ${key === activeTab ? 'is-active' : ''}" data-tab="${key}">${Admin.escapeHtml(TABS[key].label)}</button>
+    `).join('');
+    el.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.dataset.tab;
+        filterValues = {};
+        page = 1;
+        renderTabs();
+        renderFilterBar();
+        document.getElementById('logsTableTitle').textContent = TABS[activeTab].label;
+        loadList();
+      });
+    });
+    document.getElementById('logsTableTitle').textContent = TABS[activeTab].label;
+  }
+
+  function optionsHtml(opts) {
+    return opts.map((o) => {
+      if (typeof o === 'string') return `<option value="${Admin.escapeHtml(o)}">${o === '' ? 'All' : Admin.escapeHtml(o)}</option>`;
+      return `<option value="${Admin.escapeHtml(o.v)}">${Admin.escapeHtml(o.l)}</option>`;
+    }).join('');
+  }
+
+  function renderFilterBar() {
+    const tab = TABS[activeTab];
+    const bar = document.getElementById('logsFilterBar');
+    const fields = tab.filters.map((f) => {
+      const param = f.apiParam || f.id;
+      if (f.type === 'select') {
+        return `
+          <div class="form-group" style="margin-bottom:0;min-width:150px;">
+            <label for="flt_${f.id}">${Admin.escapeHtml(f.label)}</label>
+            <select id="flt_${f.id}" data-filter="${param}">${optionsHtml(f.options)}</select>
+          </div>`;
+      }
+      return `
+        <div class="form-group" style="margin-bottom:0;min-width:160px;">
+          <label for="flt_${f.id}">${Admin.escapeHtml(f.label)}</label>
+          <input type="text" id="flt_${f.id}" data-filter="${param}" placeholder="${Admin.escapeHtml(f.placeholder || '')}">
+        </div>`;
+    }).join('');
+
+    bar.innerHTML = fields + `
+      <div class="form-group" style="margin-bottom:0;min-width:150px;">
+        <label for="flt_from">From</label>
+        <input type="date" id="flt_from" data-filter="from">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px;">
+        <label for="flt_to">To</label>
+        <input type="date" id="flt_to" data-filter="to">
+      </div>
+      <button class="btn btn-secondary" id="btnApplyFilters" type="button">Apply</button>
+      <button class="btn btn-ghost" id="btnClearFilters" type="button">Clear</button>
+    `;
+
+    document.getElementById('btnApplyFilters').addEventListener('click', () => {
+      bar.querySelectorAll('[data-filter]').forEach((el) => {
+        if (el.value) filterValues[el.dataset.filter] = el.value;
+        else delete filterValues[el.dataset.filter];
+      });
+      page = 1;
+      loadList();
+    });
+    document.getElementById('btnClearFilters').addEventListener('click', () => {
+      filterValues = {};
+      page = 1;
+      renderFilterBar();
+      loadList();
+    });
+  }
+
+  function buildQuery(extraPage, extraLimit) {
+    return Admin.qs({ ...filterValues, page: extraPage ?? page, limit: extraLimit ?? perPage });
+  }
+
+  async function loadList(spin) {
+    const tab = TABS[activeTab];
+    const head = document.getElementById('logsTableHead');
+    const body = document.getElementById('logsTableBody');
+    const refreshBtn = document.getElementById('btnRefreshLogs');
+    if (spin) refreshBtn.classList.add('is-spinning');
+
+    head.innerHTML = `<tr>${tab.columns.map((c) => `<th${c === '' ? ' style="text-align:right;"' : ''}>${Admin.escapeHtml(c)}</th>`).join('')}</tr>`;
+    body.innerHTML = `<tr><td colspan="${tab.columns.length}" class="table-empty">Loading…</td></tr>`;
+
+    try {
+      const res = await Admin.api.get(tab.path + buildQuery());
+      rows = res.data.rows || [];
+      lastPagination = res.data.pagination || null;
+      renderTable();
+      renderPagination();
+      document.getElementById('logsCount').textContent = `${(lastPagination && lastPagination.total) ?? rows.length} row${rows.length === 1 ? '' : 's'}`;
+    } catch (err) {
+      body.innerHTML = `<tr><td colspan="${tab.columns.length}" class="table-empty">Couldn't load logs.</td></tr>`;
+      Admin.toastError(err);
+    } finally {
+      if (spin) setTimeout(() => refreshBtn.classList.remove('is-spinning'), 300);
+    }
+  }
+
+  function rowKey(r) {
+    return r.id ?? r.run_id ?? r.sq_id;
+  }
+
+  function renderTable() {
+    const tab = TABS[activeTab];
+    const body = document.getElementById('logsTableBody');
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="${tab.columns.length}" class="table-empty">No entries found.</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((r) => `<tr data-key="${rowKey(r)}">${tab.row(r)}</tr>`).join('');
+    body.querySelectorAll('tr').forEach((tr) => {
+      const r = rows.find((x) => String(rowKey(x)) === tr.dataset.key);
+      if (!r) return;
+      tr.querySelector('[data-act="view"]')?.addEventListener('click', () => tab.detail(r));
+      tr.querySelectorAll('[data-act]').forEach((btn) => {
+        const act = btn.dataset.act;
+        if (act === 'view') return;
+        btn.addEventListener('click', async () => {
+          if (tab.onAction) await tab.onAction(act, r, () => loadList());
+        });
+      });
+    });
+  }
+
+  function renderPagination() {
+    const el = document.getElementById('logsPagination');
+    if (!lastPagination) { el.innerHTML = `<span>Total: ${rows.length}</span>`; return; }
+    const { page: p, limit, total, totalPages } = lastPagination;
+    const from = total === 0 ? 0 : (p - 1) * limit + 1;
+    const to = Math.min(total, p * limit);
+    el.innerHTML = `
+      <span>Showing ${from} to ${to} of ${total} entries</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-secondary btn-sm" id="logsPrev" ${p <= 1 ? 'disabled' : ''}>Previous</button>
+        <span>${p} / ${totalPages || 1}</span>
+        <button class="btn btn-secondary btn-sm" id="logsNext" ${p >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>
+    `;
+    document.getElementById('logsPrev')?.addEventListener('click', () => { page--; loadList(); });
+    document.getElementById('logsNext')?.addEventListener('click', () => { page++; loadList(); });
+  }
+
+  // ---- CSV export ------------------------------------------------------
+  // Fetches every matching row (following current filters), up to a safety
+  // cap, then downloads as CSV — independent of what's currently on-screen.
+  const EXPORT_PAGE_SIZE = 200;
+  const EXPORT_MAX_ROWS = 5000;
+
+  function csvEscape(value) {
+    if (value === null || value === undefined) return '';
+    let s = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  async function exportCsv() {
+    const tab = TABS[activeTab];
+    const btn = document.getElementById('btnExportCsv');
+    Admin.setButtonLoading(btn, true, 'Exporting…');
+    try {
+      let all = [];
+      let p = 1;
+      let totalPages = 1;
+      do {
+        const res = await Admin.api.get(tab.path + buildQuery(p, EXPORT_PAGE_SIZE));
+        const pageRows = res.data.rows || [];
+        all = all.concat(pageRows);
+        totalPages = (res.data.pagination && res.data.pagination.totalPages) || 1;
+        p++;
+      } while (p <= totalPages && all.length < EXPORT_MAX_ROWS);
+
+      if (!all.length) {
+        Admin.toast('Nothing to export for the current filters', 'error');
+        return;
+      }
+
+      const columns = Object.keys(all[0]);
+      const lines = [columns.join(',')];
+      all.forEach((row) => lines.push(columns.map((c) => csvEscape(row[c])).join(',')));
+      const csv = lines.join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${activeTab}-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      Admin.toast(
+        all.length >= EXPORT_MAX_ROWS
+          ? `Exported first ${all.length} rows (cap reached — narrow filters for more)`
+          : `Exported ${all.length} rows`,
+        'success'
+      );
+    } catch (err) {
+      Admin.toastError(err);
+    } finally {
+      Admin.setButtonLoading(btn, false);
+    }
+  }
+
+  init();
+})();

@@ -45,6 +45,7 @@ $navGroups = [
   ]],
   ['key' => 'system', 'title' => 'System', 'items' => [
     ['key' => 'schedulers', 'href' => 'schedulers.php', 'label' => 'Scheduled Tasks', 'icon' => 'calendar'],
+    ['key' => 'system-logs', 'href' => 'logs.php', 'label' => 'System Logs', 'icon' => 'key'],
   ]],
   ['key' => 'settings', 'title' => 'Settings', 'items' => [
     ['key' => 'sessions', 'href' => 'sessions.php', 'label' => 'My Sessions', 'icon' => 'device'],

@@ -47,7 +47,7 @@ define('APP_NAME', getenv('ABA_APP_NAME') ?: 'ABA Master Console');
 
 // Bump this when you change assets/*.js or *.css so browsers pick up the
 // new version instead of a cached copy.
-define('ASSET_VERSION', '1.8.0');
+define('ASSET_VERSION', '1.9.0');
 
 // VAPID public key for Web Push subscriptions (assets/js/webpush.js "My Device"
 // tab). Must match the VAPID_PUBLIC_KEY the Node API was started with —
