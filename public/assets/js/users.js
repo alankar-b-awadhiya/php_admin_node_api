@@ -10,6 +10,9 @@
  *   POST   /master-users/:id/reset-password
  *   POST   /master-users/:id/unlock
  *   DELETE /master-users/:id   (SUPERADMIN only)
+ *   GET    /master-users/:id/sessions               - admin-level session list
+ *   DELETE /master-users/:id/sessions/:jti           - revoke one session
+ *   DELETE /master-users/:id/sessions (body:{jtis})  - bulk revoke
  */
 (function () {
   let state = { page: 1, pageSize: 20, search: '', usertypeId: '', isActive: '' };
@@ -90,6 +93,7 @@
         <td class="cell-muted">${Admin.timeAgo(u.lastLoginAt)}</td>
         <td class="cell-actions">
           <button class="btn btn-secondary btn-sm" data-act="edit">Edit</button>
+          <button class="btn btn-ghost btn-sm" data-act="sessions">Sessions</button>
           <button class="btn btn-ghost btn-sm" data-act="reset">Reset PW</button>
           ${u.lockedUntil ? '<button class="btn btn-ghost btn-sm" data-act="unlock">Unlock</button>' : ''}
           ${Admin.isUsertype('SUPERADMIN') ? '<button class="btn btn-danger btn-sm" data-act="delete">Delete</button>' : ''}
@@ -101,6 +105,7 @@
       const id = tr.dataset.id;
       const row = rows.find((r) => String(r.id) === id);
       tr.querySelector('[data-act="edit"]')?.addEventListener('click', () => openEditModal(row));
+      tr.querySelector('[data-act="sessions"]')?.addEventListener('click', () => openSessionsModal(row));
       tr.querySelector('[data-act="reset"]')?.addEventListener('click', () => resetPassword(row));
       tr.querySelector('[data-act="unlock"]')?.addEventListener('click', () => unlockUser(row));
       tr.querySelector('[data-act="delete"]')?.addEventListener('click', () => deleteUser(row));
@@ -299,6 +304,147 @@
       await Admin.api.del(`/master-users/${u.id}`);
       Admin.toast('User deleted', 'success');
       loadUsers();
+    } catch (err) { Admin.toastError(err); }
+  }
+
+  // ---- Admin-level session management ------------------------------------
+  // Distinct from the person's own "My Sessions" page (sessions.js) - this
+  // lets an admin see/revoke ANY user's sessions, e.g. after a suspicious
+  // activity flag or a reported lost/stolen device.
+  let sessionSelection = new Set();
+
+  async function openSessionsModal(u) {
+    sessionSelection = new Set();
+    Admin.openModal(sessionsModalHtml(u, null, 'loading'), 'modal-lg');
+    wireSessionsModalStatic(u);
+    await loadSessions(u);
+  }
+
+  function sessionsModalHtml(u, rows, state) {
+    return `
+      <div class="modal-header">
+        <h3>Sessions — ${Admin.escapeHtml(u.fullName)}</h3>
+        <button class="btn btn-ghost btn-icon" data-act="close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="sessSelectAll"></th>
+                <th>Device / browser</th><th>IP address</th><th>Signed in</th><th>Expires</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="sessionsModalBody">
+              ${state === 'loading'
+                ? `<tr><td colspan="6" class="table-empty">Loading sessions…</td></tr>`
+                : sessionsRowsHtml(rows)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn btn-danger" id="btnRevokeSelected" disabled>Revoke selected (0)</button>
+        <button class="btn btn-secondary" data-act="close">Close</button>
+      </div>
+    `;
+  }
+
+  function sessionsRowsHtml(rows) {
+    if (!rows || !rows.length) {
+      return `<tr><td colspan="6" class="table-empty">No active sessions.</td></tr>`;
+    }
+    return rows.map((s) => `
+      <tr data-jti="${Admin.escapeHtml(s.jti)}">
+        <td><input type="checkbox" class="sess-row-select" value="${Admin.escapeHtml(s.jti)}"></td>
+        <td>${Admin.escapeHtml(s.userAgent || 'Unknown device')}</td>
+        <td class="cell-muted mono">${Admin.escapeHtml(s.ipAddress || '—')}</td>
+        <td class="cell-muted">${Admin.formatDate(s.createdAt)}</td>
+        <td class="cell-muted">${Admin.formatDate(s.expiresAt)}</td>
+        <td class="cell-actions"><button class="btn btn-danger btn-sm" data-act="revoke-one">Revoke</button></td>
+      </tr>
+    `).join('');
+  }
+
+  function wireSessionsModalStatic(u) {
+    const backdrop = document.getElementById('modalBackdrop');
+    backdrop.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener('click', Admin.closeModal));
+    document.getElementById('btnRevokeSelected').addEventListener('click', () => revokeSelectedSessions(u));
+  }
+
+  function wireSessionsModalRows(u) {
+    const body = document.getElementById('sessionsModalBody');
+    const selectAll = document.getElementById('sessSelectAll');
+    const revokeBtn = document.getElementById('btnRevokeSelected');
+
+    function updateRevokeBtn() {
+      revokeBtn.disabled = sessionSelection.size === 0;
+      revokeBtn.textContent = `Revoke selected (${sessionSelection.size})`;
+    }
+
+    body.querySelectorAll('.sess-row-select').forEach((cb) => {
+      cb.checked = sessionSelection.has(cb.value);
+      cb.addEventListener('change', () => {
+        if (cb.checked) sessionSelection.add(cb.value); else sessionSelection.delete(cb.value);
+        updateRevokeBtn();
+      });
+    });
+    selectAll?.addEventListener('change', () => {
+      body.querySelectorAll('.sess-row-select').forEach((cb) => {
+        cb.checked = selectAll.checked;
+        if (cb.checked) sessionSelection.add(cb.value); else sessionSelection.delete(cb.value);
+      });
+      updateRevokeBtn();
+    });
+    body.querySelectorAll('tr').forEach((tr) => {
+      tr.querySelector('[data-act="revoke-one"]')?.addEventListener('click', () => revokeOneSession(u, tr.dataset.jti));
+    });
+    updateRevokeBtn();
+  }
+
+  async function loadSessions(u) {
+    const body = document.getElementById('sessionsModalBody');
+    try {
+      const res = await Admin.api.get(`/master-users/${u.id}/sessions`);
+      body.innerHTML = sessionsRowsHtml(res.data);
+      wireSessionsModalRows(u);
+    } catch (err) {
+      if (body) body.innerHTML = `<tr><td colspan="6" class="table-empty">Couldn't load sessions.</td></tr>`;
+      Admin.toastError(err);
+    }
+  }
+
+  async function revokeOneSession(u, jti) {
+    const ok = await Admin.confirmAction({
+      title: 'Revoke this session?',
+      body: `${Admin.escapeHtml(u.fullName)} will be signed out on that device immediately.`,
+      confirmLabel: 'Revoke',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await Admin.api.del(`/master-users/${u.id}/sessions/${encodeURIComponent(jti)}`);
+      Admin.toast('Session revoked', 'success');
+      sessionSelection.delete(jti);
+      await loadSessions(u);
+    } catch (err) { Admin.toastError(err); }
+  }
+
+  async function revokeSelectedSessions(u) {
+    const jtis = Array.from(sessionSelection);
+    if (!jtis.length) return;
+    const ok = await Admin.confirmAction({
+      title: `Revoke ${jtis.length} session${jtis.length === 1 ? '' : 's'}?`,
+      body: `${Admin.escapeHtml(u.fullName)} will be signed out on ${jtis.length === 1 ? 'that device' : 'those devices'} immediately.`,
+      confirmLabel: 'Revoke selected',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await Admin.api.delWithBody(`/master-users/${u.id}/sessions`, { jtis });
+      Admin.toast(`${res.data.revokedCount} session(s) revoked`, 'success');
+      sessionSelection = new Set();
+      await loadSessions(u);
     } catch (err) { Admin.toastError(err); }
   }
 

@@ -86,6 +86,11 @@ const Admin = (function () {
     put: (path, body, opts) => request(path, { method: 'PUT', body, ...opts }),
     patch: (path, body, opts) => request(path, { method: 'PATCH', body, ...opts }),
     del: (path, opts) => request(path, { method: 'DELETE', ...opts }),
+    // Additive - kept separate from del() so every existing del(path, opts)
+    // call site (many pages pass { base: ... } as the 2nd arg) stays exactly
+    // as-is. Only used where a DELETE genuinely needs a body, e.g. bulk
+    // session revoke / bulk log delete.
+    delWithBody: (path, body, opts) => request(path, { method: 'DELETE', body, ...opts }),
   };
 
   /** Builds an absolute API root for a specific version, e.g. apiBase('v2') -> 'http://host/api/v2'. Falls back to swapping the version segment on the default BASE. */
@@ -185,9 +190,9 @@ const Admin = (function () {
   }
 
   // ---- Modal -----------------------------------------------------------
-  function openModal(innerHtml) {
+  function openModal(innerHtml, extraClass = '') {
     const backdrop = document.getElementById('modalBackdrop');
-    backdrop.innerHTML = `<div class="modal">${innerHtml}</div>`;
+    backdrop.innerHTML = `<div class="modal${extraClass ? ' ' + extraClass : ''}">${innerHtml}</div>`;
     backdrop.classList.add('is-open');
     backdrop.onclick = (e) => { if (e.target === backdrop) closeModal(); };
     document.addEventListener('keydown', escCloseOnce);

@@ -300,6 +300,7 @@ tbody tr:last-child td { border-bottom: none; }
   background: var(--paper); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
   width: 100%; max-width: 520px; overflow: hidden;
 }
+.modal-lg { max-width: 860px; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
 .modal-header h3 { font-size: 15.5px; }
 .modal-body { padding: 20px; max-height: 62vh; overflow-y: auto; }

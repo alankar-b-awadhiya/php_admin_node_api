@@ -15,6 +15,7 @@ include __DIR__ . '/../app/includes/header.php';
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 0 1 10.2-4.24M16 10a6 6 0 0 1-10.2 4.24M4 3v3.5H7.5M16 17v-3.5H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Refresh
     </button>
+    <button class="btn btn-danger" id="btnBulkDelete" type="button" style="display:none;">Delete selected (0)</button>
     <button class="btn btn-secondary" id="btnExportCsv" type="button">
       <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 13V4M6.5 9.5 10 13l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       Export CSV

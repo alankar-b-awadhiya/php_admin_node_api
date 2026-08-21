@@ -28,11 +28,17 @@
     { value: 'slow', label: 'Slow requests' },
     { value: 'sensitive_routes', label: 'Sensitive routes only' },
   ];
+  // alert_recipients is an array of OBJECTS ({mobile, email, userId}), not
+  // an array of strings like exclude_paths/alert_channels - it needs raw
+  // JSON editing, not the line-per-item textarea the generic 'json' case
+  // uses (which would render "[object Object]" for each line).
+  const RAW_JSON_KEYS = ['alert_recipients'];
 
   const GROUPS = [
     { title: 'Master Toggles', match: (k) => k === 'debug_logging_enabled' || k === 'api_request_logging_enabled' },
     { title: 'API Request Logging', match: (k) => k.startsWith('api_request_logging_') },
     { title: 'Thresholds & Windows', match: (k) => k.startsWith('failed_login_burst_') || k.startsWith('otp_brute_force_') || k.startsWith('permission_denied_') || k === 'slow_query_threshold_seconds' },
+    { title: 'Alert Dispatch', match: (k) => k.startsWith('alert_') },
     { title: 'Retention (days)', match: (k) => k.startsWith('log_retention_days_') },
   ];
 
@@ -45,6 +51,7 @@
     canEdit = Admin.isUsertype('SUPERADMIN');
 
     document.getElementById('btnSaveAll').addEventListener('click', saveAll);
+    document.getElementById('btnTestAlert').addEventListener('click', sendTestAlert);
     if (!canEdit) {
       document.getElementById('logSettingsToolbar').insertAdjacentHTML(
         'beforeend',
@@ -150,6 +157,11 @@
           `).join('')}
         </div>
       `;
+    } else if (r.setting_type === 'json' && RAW_JSON_KEYS.includes(r.setting_key)) {
+      let pretty = value;
+      try { pretty = JSON.stringify(JSON.parse(value), null, 2); } catch (e) { /* leave as-is if not valid JSON yet */ }
+      controlHtml = `<textarea data-key="${Admin.escapeHtml(r.setting_key)}" data-kind="raw-json" rows="5" placeholder='[{"mobile":"+91...","email":"..."}]' ${disabled}>${Admin.escapeHtml(pretty || '[]')}</textarea>
+        <p class="hint" id="rawjson-err-${Admin.escapeHtml(r.setting_key)}" style="color:var(--danger,#c0392b);display:none;"></p>`;
     } else if (r.setting_type === 'json') {
       const items = parseJsonArray(value);
       controlHtml = `<textarea data-key="${Admin.escapeHtml(r.setting_key)}" data-kind="json-lines" rows="3" placeholder="One value per line" ${disabled}>${Admin.escapeHtml(items.join('\n'))}</textarea>`;
@@ -162,6 +174,7 @@
         <div class="settings-field-label">
           <span>${Admin.escapeHtml(label)}</span>
           <span class="settings-type-badge">${Admin.escapeHtml(r.setting_type)}</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-history-key="${Admin.escapeHtml(r.setting_key)}" style="margin-left:auto;">History</button>
         </div>
         ${controlHtml}
         ${hint}
@@ -170,6 +183,11 @@
   }
 
   function wireEvents() {
+    // History is view-only info, available regardless of canEdit.
+    document.getElementById('logSettingsGroups').querySelectorAll('[data-history-key]').forEach((btn) => {
+      btn.addEventListener('click', () => openHistoryModal(btn.dataset.historyKey));
+    });
+
     if (!canEdit) return;
     const container = document.getElementById('logSettingsGroups');
 
@@ -193,6 +211,21 @@
       el.addEventListener('input', () => {
         const items = el.value.split('\n').map((s) => s.trim()).filter(Boolean);
         markDirty(el.dataset.key, JSON.stringify(items));
+      });
+    });
+
+    container.querySelectorAll('[data-kind="raw-json"]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const errEl = document.getElementById(`rawjson-err-${cssEscape(el.dataset.key)}`);
+        try {
+          const parsed = JSON.parse(el.value);
+          if (errEl) errEl.style.display = 'none';
+          markDirty(el.dataset.key, JSON.stringify(parsed));
+        } catch (e) {
+          // Don't mark dirty on invalid JSON - Save All would send broken
+          // data. Show the parse error instead so the admin can fix it.
+          if (errEl) { errEl.textContent = 'Invalid JSON: ' + e.message; errEl.style.display = ''; }
+        }
       });
     });
 
@@ -233,6 +266,71 @@
       Admin.toast('Log settings saved — takes effect immediately', 'success');
       dirty = {};
       await load();
+    } catch (err) {
+      Admin.toastError(err);
+    } finally {
+      Admin.setButtonLoading(btn, false);
+    }
+  }
+
+  // ---- Change history (2.1) ------------------------------------------------
+  // GET /system-logs/settings/history?key=... -> old_value/new_value/who/when,
+  // newest first. Every PATCH /system-logs/settings write auto-creates a row
+  // here (see systemLogs.service.js) - nothing to do on save, just display.
+  async function openHistoryModal(key) {
+    Admin.openModal(`
+      <div class="modal-header"><h3>History — ${Admin.escapeHtml(key)}</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
+      <div class="modal-body" id="historyModalBody"><p class="cell-muted">Loading history…</p></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-act="close">Close</button></div>
+    `, 'modal-lg');
+    document.getElementById('modalBackdrop').querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+
+    const body = document.getElementById('historyModalBody');
+    try {
+      const res = await Admin.api.get(`/system-logs/settings/history?key=${encodeURIComponent(key)}`);
+      const items = res.data || [];
+      if (!items.length) {
+        body.innerHTML = `<p class="cell-muted">No changes recorded yet for this setting.</p>`;
+        return;
+      }
+      body.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Old value</th><th>New value</th><th>Changed by</th><th>When</th></tr></thead>
+            <tbody>
+              ${items.map((h) => `
+                <tr>
+                  <td class="cell-muted">${h.old_value === null ? '<em>(none)</em>' : `<code>${Admin.escapeHtml(String(h.old_value))}</code>`}</td>
+                  <td><code>${Admin.escapeHtml(String(h.new_value ?? ''))}</code></td>
+                  <td class="cell-muted">${h.changed_by != null ? '#' + h.changed_by : '—'}</td>
+                  <td class="cell-muted">${Admin.formatDate(h.changed_at)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      body.innerHTML = `<p class="cell-muted">Couldn't load history for this setting.</p>`;
+      Admin.toastError(err);
+    }
+  }
+
+  // ---- Send Test Alert -----------------------------------------------------
+  // POST /system-logs/settings/test-alert - fires a synthetic critical alert
+  // through the configured webhook (bypasses alert_dispatch_enabled and the
+  // severity threshold server-side) so unsaved form edits don't matter here -
+  // it always tests against the LAST SAVED settings, same as a real event
+  // would use. Save first if you just changed the webhook URL/secret.
+  async function sendTestAlert() {
+    const btn = document.getElementById('btnTestAlert');
+    Admin.setButtonLoading(btn, true, 'Sending…');
+    try {
+      const res = await Admin.api.post('/system-logs/settings/test-alert');
+      Admin.toast(
+        res.data.success ? 'Test alert delivered successfully' : `Webhook responded with an error (HTTP ${res.data.statusCode ?? '—'})`,
+        res.data.success ? 'success' : 'error'
+      );
     } catch (err) {
       Admin.toastError(err);
     } finally {
