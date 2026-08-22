@@ -75,6 +75,9 @@
     backdrop.querySelectorAll('[data-act="view-trace"]').forEach((btn) => {
       btn.addEventListener('click', () => openTraceModal(btn.dataset.requestId));
     });
+    backdrop.querySelectorAll('[data-act="view-session-tree"]').forEach((btn) => {
+      btn.addEventListener('click', () => openSessionTreeModal(btn.dataset.sessionId));
+    });
   }
 
   // Every detail() panel that shows a request_id uses this instead of a bare
@@ -85,6 +88,12 @@
     if (!requestId) return '<span class="cell-muted">—</span>';
     return `<code>${Admin.escapeHtml(requestId)}</code>
       <button type="button" class="btn btn-ghost btn-sm" data-act="view-trace" data-request-id="${Admin.escapeHtml(requestId)}" style="margin-left:8px;">View Full Trace →</button>`;
+  }
+
+  function sessionIdBlock(sessionId) {
+    if (!sessionId) return '<span class="cell-muted">—</span>';
+    return `<code>${Admin.escapeHtml(sessionId.slice(0, 8))}…</code>
+      <button type="button" class="btn btn-ghost btn-sm" data-act="view-session-tree" data-session-id="${Admin.escapeHtml(sessionId)}" style="margin-left:8px;">View Session Activity →</button>`;
   }
 
   // ---- Request-ID trace view (1.3) -----------------------------------------
@@ -149,6 +158,80 @@
       `;
     } catch (err) {
       body.innerHTML = `<p class="cell-muted">Couldn't load the trace for this request.</p>`;
+      Admin.toastError(err);
+    }
+  }
+
+  // ---- Session activity tree (whole login session, spans requests) --------
+  // GET /system-logs/session-tree/:sessionId -> { session, authEvents, requests }
+  // requests[] is chronological, each with .request (api_request_logs row,
+  // may be null) and .children (correlated error/suspicious/debug/slow_query
+  // rows sharing that request_id) - this renders the two-level tree.
+  function summarizeChildRow(row) {
+    switch (row.logType) {
+      case 'error': return `${row.level}: ${truncate(row.message, 60)}`;
+      case 'suspicious': return `${Admin.escapeHtml(row.event_type)} (${Admin.escapeHtml(row.severity)})`;
+      case 'debug': return truncate(row.message, 60);
+      case 'slow_query': return `${row.execution_time_secs ?? '—'}s — ${truncate(row.query_text, 40)}`;
+      default: return '—';
+    }
+  }
+
+  async function openSessionTreeModal(sessionId) {
+    Admin.openModal(`
+      <div class="modal-header"><h3>Session Activity</h3><button class="btn btn-ghost btn-icon" data-act="close">&times;</button></div>
+      <div class="modal-body" id="sessionTreeModalBody"><p class="cell-muted">Loading session activity…</p></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-act="close">Close</button></div>
+    `, 'modal-lg');
+    document.getElementById('modalBackdrop').querySelectorAll('[data-act="close"]').forEach((el) => el.addEventListener('click', Admin.closeModal));
+
+    const body = document.getElementById('sessionTreeModalBody');
+    try {
+      const res = await Admin.api.get(`/system-logs/session-tree/${encodeURIComponent(sessionId)}`);
+      const { session, authEvents, requests, totalRequestCount, totalLogCount } = res.data;
+
+      const header = session
+        ? `<p><strong>${Admin.escapeHtml(session.full_name || session.username)}</strong> (@${Admin.escapeHtml(session.username)}) —
+           ${Admin.badge(session.active_token_count > 0, 'Active', 'Ended')}
+           <span class="cell-muted"> · started ${Admin.formatDate(session.session_started_at)} · ${session.total_token_count} device(s) over this session</span></p>`
+        : `<p class="cell-muted">No active-session record found (may already be fully logged out) — showing logged activity only.</p>`;
+
+      const authRows = (authEvents || []).map((e) => `
+        <tr><td>${badgeMap(e.event, AUTH_EVENT_BADGES)}</td><td class="cell-muted">${Admin.escapeHtml(e.ip_address || '—')}</td><td class="cell-muted">${Admin.formatDate(e.created_at)}</td></tr>
+      `).join('');
+
+      const requestBlocks = (requests || []).map((node) => {
+        const req = node.request;
+        const reqLine = req
+          ? `<span class="badge-outline">${Admin.escapeHtml(req.method || '')}</span> ${truncate(req.endpoint, 55)} ${statusCodeBadge(req.response_code)} <span class="cell-muted">${req.response_time != null ? req.response_time + 'ms' : ''}</span>`
+          : `<span class="cell-muted">Request not captured (api_request_logging was off) — showing correlated logs only</span>`;
+        const when = req ? req.created_at : (node.children[0] && node.children[0].created_at);
+        const children = node.children.length
+          ? `<ul style="margin:6px 0 0 18px;padding:0;">${node.children.map((c) => `
+              <li style="margin-bottom:4px;">
+                <span class="badge ${TRACE_TYPE_BADGES[c.logType] || 'badge-gray'}"><span class="badge-dot"></span>${TRACE_TYPE_LABELS[c.logType] || c.logType}</span>
+                <span class="cell-muted">${summarizeChildRow(c)}</span>
+              </li>`).join('')}</ul>`
+          : '';
+        return `
+          <div style="padding:10px 12px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;gap:10px;">
+              <div>${reqLine}</div>
+              <span class="cell-muted" style="white-space:nowrap;">${Admin.timeAgo(when)}</span>
+            </div>
+            ${children}
+          </div>`;
+      }).join('');
+
+      body.innerHTML = `
+        ${header}
+        ${authRows ? `<div class="table-wrap" style="margin:10px 0 16px;"><table><thead><tr><th>Auth Event</th><th>IP</th><th>When</th></tr></thead><tbody>${authRows}</tbody></table></div>` : ''}
+        <h4 style="margin:0 0 10px;">Requests in this session (${totalRequestCount})</h4>
+        ${requestBlocks || '<p class="cell-muted">No requests recorded for this session yet.</p>'}
+        <p class="cell-muted" style="margin-top:10px;">${totalLogCount} total log row(s) across this session.</p>
+      `;
+    } catch (err) {
+      body.innerHTML = `<p class="cell-muted">Couldn't load this session's activity.</p>`;
       Admin.toastError(err);
     }
   }
@@ -291,6 +374,7 @@
           { label: 'IP / User Agent', value: `<p class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</p><p class="cell-muted">${Admin.escapeHtml(r.user_agent || '—')}</p>` },
           { label: 'Notes', value: `<p>${Admin.escapeHtml(r.notes || '—')}</p>` },
           { label: 'Request ID', value: requestIdBlock(r.request_id) },
+          { label: 'Session', value: sessionIdBlock(r.session_id) },
         ]);
       },
     },
@@ -498,9 +582,74 @@
         return true;
       },
     },
+
+    sessions: {
+      label: 'Sessions',
+      path: '/system-logs/sessions',
+      // No bulkType (that's the delete-endpoint mechanism) - sessions use
+      // bulkAction instead, which calls the revoke endpoint via a custom
+      // handler and drives the same checkbox/selection UI.
+      bulkAction: {
+        label: 'Revoke Selected',
+        danger: true,
+        confirmTitle: (n) => `Revoke ${n} session${n === 1 ? '' : 's'}?`,
+        confirmBody: (n) => `The selected user${n === 1 ? '' : 's'} will be signed out immediately on ${n === 1 ? 'that device' : 'those devices'}. This can't be undone.`,
+        async handler(jtis) {
+          const res = await Admin.api.post('/system-logs/sessions/bulk-revoke', { jtis });
+          Admin.toast(`Revoked ${res.data.revoked} of ${res.data.requested} session(s)`, 'success');
+        },
+      },
+      filters: [
+        { id: 'search', label: 'Search user (name/email/username)', type: 'text' },
+        { id: 'userId', label: 'User ID', type: 'text' },
+      ],
+      columns: ['User', 'Device / IP', 'Session', 'Expires', ''],
+      row(r) {
+        return `
+          <td>
+            <div>${Admin.escapeHtml(r.full_name || r.username)}</div>
+            <div class="cell-muted">@${Admin.escapeHtml(r.username)} · ${Admin.escapeHtml(r.email || '—')}</div>
+          </td>
+          <td class="cell-muted">${truncate(r.user_agent, 40)}<br>${Admin.escapeHtml(r.ip_address || '—')}</td>
+          <td>${sessionIdBlock(r.session_id)}</td>
+          <td class="cell-muted">${Admin.formatDate(r.expires_at)}</td>
+          <td class="cell-actions">
+            <button class="btn btn-danger btn-sm" data-act="revoke">Revoke</button>
+          </td>
+        `;
+      },
+      detail(r) {
+        openDetailModal(`Session — ${r.username}`, [
+          { label: 'User', value: `<p>${Admin.escapeHtml(r.full_name || r.username)} (@${Admin.escapeHtml(r.username)}) — ${Admin.escapeHtml(r.email || '—')}</p>` },
+          { label: 'Device', value: `<p class="cell-muted">${Admin.escapeHtml(r.user_agent || '—')}</p><p class="cell-muted">${Admin.escapeHtml(r.ip_address || '—')}</p>` },
+          { label: 'Session', value: sessionIdBlock(r.session_id) },
+          { label: 'Created / Expires', value: `<p class="cell-muted">${Admin.formatDate(r.created_at)} → ${Admin.formatDate(r.expires_at)}</p>` },
+        ]);
+      },
+      async onAction(act, row, reload) {
+        if (act === 'view-session-tree') {
+          await openSessionTreeModal(row.session_id);
+          return true;
+        }
+        if (act !== 'revoke') return false;
+        const ok = await Admin.confirmAction({
+          title: 'Revoke this session?',
+          body: `${row.full_name || row.username} will be signed out immediately on this device.`,
+          confirmLabel: 'Revoke',
+          danger: true,
+        });
+        if (!ok) return true;
+        try {
+          await Admin.api.del(`/system-logs/sessions/${encodeURIComponent(row.jti)}`);
+          Admin.toast('Session revoked', 'success');
+          reload();
+        } catch (err) { Admin.toastError(err); }
+        return true;
+      },
+    },
   };
 
-  const TAB_ORDER = ['errors', 'apiRequests', 'auth', 'suspicious', 'emails', 'externalApi', 'jobs', 'slowQueries', 'debug'];
+  const TAB_ORDER = ['errors', 'apiRequests', 'auth', 'suspicious', 'emails', 'externalApi', 'jobs', 'slowQueries', 'debug', 'sessions'];
 
   let activeTab = 'errors';
   let filterValues = {};
@@ -627,7 +776,7 @@
   }
 
   function rowKey(r) {
-    return r.id ?? r.run_id ?? r.sq_id;
+    return r.id ?? r.run_id ?? r.sq_id ?? r.jti;
   }
 
   function renderTable() {
@@ -675,19 +824,49 @@
     }
   }
 
-  // ---- Bulk delete (2.5) --------------------------------------------------
+  // ---- Bulk delete (2.5) / bulk action (generalized for Sessions' bulk-revoke) --
   function updateBulkDeleteButton() {
+    const tab = TABS[activeTab];
     const btn = document.getElementById('btnBulkDelete');
-    if (!TABS[activeTab].bulkType) { btn.style.display = 'none'; return; }
-    btn.style.display = '';
-    btn.disabled = selectedRowIds.size === 0;
-    btn.textContent = `Delete selected (${selectedRowIds.size})`;
+    if (tab.bulkType) {
+      btn.style.display = '';
+      btn.disabled = selectedRowIds.size === 0;
+      btn.textContent = `Delete selected (${selectedRowIds.size})`;
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-danger');
+    } else if (tab.bulkAction) {
+      btn.style.display = '';
+      btn.disabled = selectedRowIds.size === 0;
+      btn.textContent = `${tab.bulkAction.label} (${selectedRowIds.size})`;
+      btn.classList.remove('btn-danger');
+      btn.classList.add('btn-secondary');
+    } else {
+      btn.style.display = 'none';
+    }
   }
 
   async function bulkDeleteSelected() {
     const tab = TABS[activeTab];
     const ids = Array.from(selectedRowIds);
-    if (!ids.length || !tab.bulkType) return;
+    if (!ids.length) return;
+
+    if (tab.bulkAction) {
+      const ok = await Admin.confirmAction({
+        title: tab.bulkAction.confirmTitle(ids.length),
+        body: tab.bulkAction.confirmBody(ids.length),
+        confirmLabel: tab.bulkAction.label,
+        danger: !!tab.bulkAction.danger,
+      });
+      if (!ok) return;
+      try {
+        await tab.bulkAction.handler(ids);
+        selectedRowIds = new Set();
+        await loadList();
+      } catch (err) { Admin.toastError(err); }
+      return;
+    }
+
+    if (!tab.bulkType) return;
     const ok = await Admin.confirmAction({
       title: `Delete ${ids.length} log entr${ids.length === 1 ? 'y' : 'ies'}?`,
       body: `This permanently deletes the selected ${tab.label.toLowerCase()} rows. This can't be undone.`,
