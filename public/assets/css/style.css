@@ -1007,3 +1007,28 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
   .rpt-grid > * { grid-column: 1 / -1 !important; grid-row: auto !important; }
 }
 .btn[hidden], .rpt-hidden { display: none !important; }
+
+/* ---- Reports: API Sources page (Step 2) -------------------------------------- */
+.rpt-url { margin-top: 4px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpt-advanced { margin: 4px 0 14px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; background: var(--porcelain); }
+.rpt-advanced > summary { cursor: pointer; font-size: 12.8px; font-weight: 650; color: var(--text-muted); }
+.rpt-advanced[open] > summary { color: var(--text); }
+#bodyGroup[hidden] { display: none; }
+
+/* ---- Step 3: source detail modal, params editor, field catalogue ---- */
+.modal.rpt-modal-wide { max-width: 1040px; }
+.rpt-link { color: inherit; font-weight: 700; text-decoration: none; }
+.rpt-link:hover { color: var(--indigo); text-decoration: underline; }
+.rpt-detail-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+.rpt-params-list { display: flex; flex-direction: column; gap: 12px; }
+.rpt-param { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px 14px 4px; background: var(--paper); }
+.rpt-param .form-group { margin-bottom: 10px; }
+.rpt-param-grid { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr auto; gap: 12px; align-items: end; }
+.rpt-param-grid2 { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+.rpt-param-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.rpt-params-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.rpt-fields-table td { vertical-align: middle; }
+.rpt-fields-table input[type="text"], .rpt-fields-table select { width: 100%; min-width: 110px; padding: 6px 8px; font-size: 13px; }
+.rpt-fields-table tr.is-edited td { background: var(--indigo-tint); }
+@media (max-width: 720px) { .rpt-param-grid, .rpt-param-grid2 { grid-template-columns: 1fr; } }
+.rpt-param [hidden], [data-panel][hidden] { display: none !important; }

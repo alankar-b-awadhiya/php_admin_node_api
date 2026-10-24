@@ -32,7 +32,8 @@ const Reports = (function () {
       params: (id) => `/report-sources/${id}/params`, // GET | PUT { params: [...] }
       fields: (id) => `/report-sources/${id}/fields`, // GET | PUT { fields: [...] }
       test: (id) => `/report-sources/${id}/test`,     // POST { test_values, save_fields, preview_rows }
-      cache: (id) => `/report-sources/${id}/cache`,   // DELETE
+      cache: (id) => `/report-sources/${id}/cache`,   // DELETE -> { data: { deleted } }
+      runs: (id) => `/report-sources/${id}/runs`,     // GET ?limit= -> { data: { runs: [...] } }
     },
     widgets: {
       list: '/report-widgets',
@@ -164,6 +165,63 @@ const Reports = (function () {
     return rows.map((o) => `<option value="${esc(o.value)}"${String(o.value) === String(selected ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
   };
 
+  // ---- Placeholders ({param} / built-in tokens) -----------------------------------
+  // Mirrors ms_reports utils/template.js BUILTIN. Used only to hint in the forms;
+  // the server is the real validator.
+  const BUILTIN_TOKENS = ['today', 'yesterday', 'month_start', 'month_end', 'year_start', 'year_end', 'year', 'month', 'user_id'];
+
+  /** Collects the distinct {placeholder} names found in any string / object / array. */
+  function findPlaceholders(value, into = new Set()) {
+    if (typeof value === 'string') {
+      const re = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+      let m;
+      while ((m = re.exec(value)) !== null) into.add(m[1]);
+    } else if (Array.isArray(value)) {
+      value.forEach((v) => findPlaceholders(v, into));
+    } else if (value && typeof value === 'object') {
+      Object.values(value).forEach((v) => findPlaceholders(v, into));
+    }
+    return into;
+  }
+
+  // ---- More small helpers ---------------------------------------------------------
+  const truncate = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, n - 1) + '\u2026' : t; };
+  const fmtBytes = (b) => (b === null || b === undefined || isNaN(Number(b)) ? '\u2014' : b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`);
+
+  /** Server validation errors (ApiError.errors) -> the standard red box used by the other pages. */
+  function formErrorsHtml(err) {
+    const list = err && Array.isArray(err.errors) ? err.errors : [];
+    const msg = (err && err.message) || 'Something went wrong.';
+    return `<div class="form-errors"><strong>${esc(msg)}</strong>${list.length ? `<ul>${list.map((e) => `<li>${esc(typeof e === 'string' ? e : (e.message || JSON.stringify(e)))}</li>`).join('')}</ul>` : ''}</div>`;
+  }
+
+  // ---- Pagination (same look as blogs / enquiries) --------------------------------
+  /** pagerHtml(meta.pagination) -> markup for a <div class="pagination">; wire it with bindPager(). */
+  function pagerHtml(p) {
+    if (!p || !p.total) return '';
+    const page = Number(p.page) || 1;
+    const perPage = Number(p.perPage) || 20;
+    const total = Number(p.total) || 0;
+    const pages = Number(p.pages) || 1;
+    const from = (page - 1) * perPage + 1;
+    const to = Math.min(total, page * perPage);
+    return `
+      <span>Showing ${from} to ${to} of ${total} entries</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-secondary btn-sm" type="button" data-pg="prev" ${page <= 1 ? 'disabled' : ''}>Previous</button>
+        <span>${page} / ${pages}</span>
+        <button class="btn btn-secondary btn-sm" type="button" data-pg="next" ${page >= pages ? 'disabled' : ''}>Next</button>
+      </div>`;
+  }
+  /** Fills `el` with the pager and calls onPage(newPage) on Previous / Next. */
+  function renderPager(el, p, onPage) {
+    if (!el) return;
+    el.innerHTML = pagerHtml(p);
+    const page = p ? Number(p.page) || 1 : 1;
+    el.querySelector('[data-pg="prev"]')?.addEventListener('click', () => onPage(page - 1));
+    el.querySelector('[data-pg="next"]')?.addEventListener('click', () => onPage(page + 1));
+  }
+
   // ---- Badges ----------------------------------------------------------------
   const activeBadge = (on) => Admin.badge(!!Number(on), 'Active', 'Inactive');
   const internalBadge = (isInternal) => (Number(isInternal)
@@ -189,6 +247,206 @@ const Reports = (function () {
     if (err && err.status === 403) return { kind: 'forbidden', message: 'You don\u2019t have access to this.', hint: 'Ask an admin to grant the matching Reports permission to your role.' };
     if (err && err.status === 401) return { kind: 'error', message: 'Your session has expired. Please sign in again.' };
     return { kind: 'error', message: (err && err.message) || 'Something went wrong.' };
+  }
+
+  // ---- Params editor (declared {placeholders}) -------------------------------------
+  // One component used by the source form (create / edit) and by the source detail
+  // "Params" tab. Rows live in memory; the DOM is re-rendered only when a row is
+  // added or removed, so typing never loses focus.
+  const PARAM_KEY_RE = /^[a-z][a-z0-9_]{0,59}$/;
+  const PARAM_HINTS = {
+    string: (k) => `Use it as <span class="rpt-code">{${k}}</span>.`,
+    number: (k) => `Must be a number. Use it as <span class="rpt-code">{${k}}</span>.`,
+    date: (k) => `Date as YYYY-MM-DD. Use it as <span class="rpt-code">{${k}}</span>.`,
+    daterange: (k) => `Value is <em>from,to</em> (YYYY-MM-DD). Use <span class="rpt-code">{${k}_from}</span> and <span class="rpt-code">{${k}_to}</span>.`,
+    select: (k) => `Callers must pick one of the options. Use it as <span class="rpt-code">{${k}}</span>.`,
+  };
+
+  /** [ 'a', {value:'b', label:'B'} ]  ->  "a\nb|B" */
+  function optionsToText(options) {
+    if (!Array.isArray(options)) return '';
+    return options.map((o) => (o && typeof o === 'object'
+      ? (o.label !== undefined && String(o.label) !== String(o.value) ? `${o.value}|${o.label}` : String(o.value))
+      : String(o))).join('\n');
+  }
+  /** "a\nb|B" -> [ 'a', {value:'b', label:'B'} ]  (blank lines dropped, duplicates removed) */
+  function textToOptions(text) {
+    const seen = new Set();
+    const out = [];
+    String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).forEach((line) => {
+      const i = line.indexOf('|');
+      const value = (i === -1 ? line : line.slice(0, i)).trim();
+      const label = i === -1 ? '' : line.slice(i + 1).trim();
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      out.push(label && label !== value ? { value, label } : value);
+    });
+    return out;
+  }
+
+  /**
+   * paramsEditor(mount, { params, getUsedNames, onChange }) -> { getValue, isDirty, declaredKeys, addMissing, rowCount }
+   *   params       : API shape [{ paramKey, paramLabel, dataType, isRequired, defaultValue, options }]
+   *   getUsedNames : () => Set|Array of {placeholder} names used by the source (enables "Add from placeholders")
+   *   onChange     : called after any edit / add / remove
+   *   getValue()   : { params: [snake_case rows for the API], errors: [messages] }
+   */
+  function paramsEditor(mount, { params = [], getUsedNames = null, onChange = null } = {}) {
+    const toRow = (p) => ({
+      key: p.paramKey ?? p.param_key ?? '',
+      label: p.paramLabel ?? p.param_label ?? '',
+      type: p.dataType ?? p.data_type ?? 'string',
+      required: !!(p.isRequired ?? p.is_required),
+      def: p.defaultValue ?? p.default_value ?? '',
+      optionsText: optionsToText(p.options),
+      keyTouched: true,
+    });
+    let rows = (params || []).map(toRow);
+    let note = '';
+
+    function serialize() {
+      return rows.map((r, i) => ({
+        param_key: r.key.trim(),
+        param_label: r.label.trim() || r.key.trim(),
+        data_type: r.type,
+        is_required: r.required,
+        default_value: r.def === '' ? null : r.def,
+        options: r.type === 'select' ? textToOptions(r.optionsText) : null,
+        sort_order: i,
+      }));
+    }
+    const initial = JSON.stringify(serialize());
+
+    function getValue() {
+      const errors = [];
+      if (rows.length > 30) errors.push('A source can have at most 30 params.');
+      const seen = new Set();
+      rows.forEach((r, i) => {
+        const key = r.key.trim();
+        const n = `Param ${i + 1}${key ? ` (${key})` : ''}`;
+        if (!PARAM_KEY_RE.test(key)) errors.push(`${n}: key must be lowercase letters, digits or _ , starting with a letter (max 60).`);
+        else if (seen.has(key)) errors.push(`${n}: this key is used twice.`);
+        seen.add(key);
+        if (r.type === 'select' && !textToOptions(r.optionsText).length) errors.push(`${n}: a Select param needs at least one option.`);
+      });
+      return { params: serialize(), errors };
+    }
+
+    function declaredKeys() {
+      const set = new Set();
+      rows.forEach((r) => {
+        const k = r.key.trim();
+        if (!k) return;
+        set.add(k);
+        if (r.type === 'daterange') { set.add(`${k}_from`); set.add(`${k}_to`); }
+      });
+      return set;
+    }
+
+    const changed = () => { if (typeof onChange === 'function') onChange(); };
+    const hintFor = (r) => (PARAM_HINTS[r.type] || PARAM_HINTS.string)(esc(r.key.trim() || 'key'));
+
+    function cardHtml(r, i) {
+      return `
+      <div class="rpt-param" data-i="${i}">
+        <div class="rpt-param-grid">
+          <div class="form-group"><label>Key <span style="color:var(--coral);">*</span></label>
+            <input type="text" class="rpt-mono" data-k="key" maxlength="60" autocomplete="off" placeholder="region" value="${esc(r.key)}"></div>
+          <div class="form-group"><label>Label</label>
+            <input type="text" data-k="label" maxlength="150" autocomplete="off" placeholder="Region" value="${esc(r.label)}"></div>
+          <div class="form-group"><label>Type</label>
+            <select data-k="type">${optionsHtml(PARAM_TYPES, r.type)}</select></div>
+          <div class="form-group"><label>Required</label>
+            <div style="display:flex;align-items:center;height:38px;"><label class="switch"><input type="checkbox" data-k="required" ${r.required ? 'checked' : ''}><span class="slider"></span></label></div></div>
+        </div>
+        <div class="rpt-param-grid2">
+          <div class="form-group"><label>Default value</label>
+            <input type="text" data-k="def" maxlength="255" autocomplete="off" placeholder="optional, e.g. {month_start}" value="${esc(r.def)}"></div>
+          <div class="form-group" data-opt ${r.type === 'select' ? '' : 'hidden'}><label>Options <span class="cell-muted" style="font-weight:400;">(one per line: value or value|Label)</span></label>
+            <textarea data-k="optionsText" class="rpt-mono" rows="3" placeholder="north&#10;south|South zone">${esc(r.optionsText)}</textarea></div>
+        </div>
+        <div class="rpt-param-foot">
+          <span class="rpt-hint" data-hint style="margin:0;">${hintFor(r)}</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-pe="remove">Remove</button>
+        </div>
+      </div>`;
+    }
+
+    function render() {
+      mount.innerHTML = `
+        <div class="rpt-params">
+          ${rows.length
+            ? `<div class="rpt-params-list">${rows.map(cardHtml).join('')}</div>`
+            : '<div class="rpt-hint" style="margin:0 0 4px;">No params declared. Add one for every <span class="rpt-code">{name}</span> your URL, query, headers or body uses (built-ins like <span class="rpt-code">{today}</span> need none).</div>'}
+          <div class="rpt-params-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-pe="add">+ Add param</button>
+            ${getUsedNames ? '<button type="button" class="btn btn-secondary btn-sm" data-pe="detect">Add from placeholders</button>' : ''}
+            <span class="rpt-hint" data-pe="note" style="margin:0;">${esc(note)}</span>
+          </div>
+        </div>`;
+    }
+
+    function addMissing() {
+      const used = getUsedNames ? [...getUsedNames()] : [];
+      const have = declaredKeys();
+      const fresh = used.filter((n) => !BUILTIN_TOKENS.includes(n) && !have.has(n) && PARAM_KEY_RE.test(n));
+      fresh.forEach((n) => rows.push({ key: n, label: n.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()), type: 'string', required: false, def: '', optionsText: '', keyTouched: true }));
+      note = fresh.length ? `Added ${fresh.length} param${fresh.length === 1 ? '' : 's'}: ${fresh.join(', ')}.` : 'Every placeholder in use is already declared.';
+      render();
+      changed();
+      return fresh.length;
+    }
+
+    mount.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pe]');
+      if (!btn || btn.dataset.pe === 'note') return;
+      if (btn.dataset.pe === 'add') {
+        if (rows.length >= 30) { note = 'A source can have at most 30 params.'; render(); return; }
+        rows.push({ key: '', label: '', type: 'string', required: false, def: '', optionsText: '', keyTouched: false });
+        note = '';
+        render();
+        const last = mount.querySelectorAll('.rpt-param');
+        last[last.length - 1]?.querySelector('[data-k="key"]')?.focus();
+        changed();
+      } else if (btn.dataset.pe === 'remove') {
+        const i = Number(btn.closest('.rpt-param').dataset.i);
+        rows.splice(i, 1);
+        note = '';
+        render();
+        changed();
+      } else if (btn.dataset.pe === 'detect') {
+        addMissing();
+      }
+    });
+
+    function onEdit(e) {
+      const el = e.target.closest('[data-k]');
+      if (!el) return;
+      const card = el.closest('.rpt-param');
+      const r = rows[Number(card.dataset.i)];
+      if (!r) return;
+      const k = el.dataset.k;
+      if (k === 'required') r.required = el.checked;
+      else if (k === 'key') { r.key = el.value; r.keyTouched = true; }
+      else if (k === 'label') {
+        r.label = el.value;
+        if (!r.keyTouched) { r.key = slugify(r.label, 60); card.querySelector('[data-k="key"]').value = r.key; }
+      } else r[k] = el.value;
+      if (k === 'type') card.querySelector('[data-opt]').hidden = r.type !== 'select';
+      if (k === 'type' || k === 'key' || k === 'label') card.querySelector('[data-hint]').innerHTML = hintFor(r);
+      changed();
+    }
+    mount.addEventListener('input', onEdit);
+    mount.addEventListener('change', onEdit);
+
+    render();
+    return {
+      getValue,
+      declaredKeys,
+      addMissing,
+      rowCount: () => rows.length,
+      isDirty: () => JSON.stringify(serialize()) !== initial,
+    };
   }
 
   // ---- Page bootstrap ----------------------------------------------------------
@@ -227,7 +485,8 @@ const Reports = (function () {
   return {
     API, HTTP_METHODS, AUTH_TYPES, PARAM_TYPES, FIELD_TYPES, FIELD_ROLES, AGGREGATIONS, FIELD_USES, CHART_TYPES,
     chartMeta, chartLabel, chartIcon, labelOf,
-    isCode, slugify, parseJsonInput, prettyJson, fmtNumber, fmtMs, optionsHtml,
+    isCode, slugify, parseJsonInput, prettyJson, fmtNumber, fmtMs, fmtBytes, truncate, optionsHtml,
+    BUILTIN_TOKENS, findPlaceholders, formErrorsHtml, pagerHtml, renderPager, paramsEditor, optionsToText, textToOptions,
     activeBadge, internalBadge, stateHtml, errorState, bootPage,
   };
 })();
