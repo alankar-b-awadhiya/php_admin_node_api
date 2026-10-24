@@ -15,6 +15,10 @@ include __DIR__ . '/../app/includes/header.php';
       <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10.6 2H4a2 2 0 0 0-2 2v6.6c0 .5.2 1 .6 1.4l7 7c.8.8 2 .8 2.8 0l6-6c.8-.8.8-2 0-2.8l-7-7c-.4-.4-.9-.6-1.4-.6ZM6 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" stroke="currentColor" stroke-width="1.3"/></svg>
       Attributes
     </a>
+    <button class="btn btn-outline-indigo" id="btnImportProducts" type="button">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Import Excel
+    </button>
     <button class="btn btn-success" id="btnAddProduct" type="button">
       <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Add Product

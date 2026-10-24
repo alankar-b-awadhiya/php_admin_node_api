@@ -35,6 +35,9 @@
 </aside>
 
 <script src="assets/js/common.js?v=<?= ASSET_VERSION ?>"></script>
+<?php foreach (($pageScriptsBefore ?? []) as $__src): /* optional: scripts (vendor libs, shared helpers) that must load before $pageScript; paths are relative to assets/ */ ?>
+<script src="assets/<?= htmlspecialchars($__src) ?>?v=<?= ASSET_VERSION ?>"></script>
+<?php endforeach; ?>
 <?php if (!empty($pageScript)): ?>
 <script src="assets/js/<?= htmlspecialchars($pageScript) ?>?v=<?= ASSET_VERSION ?>"></script>
 <?php endif; ?>

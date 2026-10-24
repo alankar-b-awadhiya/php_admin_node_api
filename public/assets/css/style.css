@@ -952,3 +952,58 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
    .inbox-msg-* rules exist elsewhere in this stylesheet yet, so this doesn't override anything. */
 .inbox-msg-failed { border: 1px solid #b91c1c; background: #fef2f2; border-radius: var(--radius-lg, 10px); padding: 8px 12px; }
 .inbox-msg-failed .inbox-msg-time { color: #b91c1c; font-weight: 650; }
+
+/* ==========================================================================
+   Reports module (ms_reports UI) — report-sources / report-widgets /
+   report-dashboards. Additive only: every rule is prefixed .rpt- or is a new
+   .form-row-3/-4 variant, so no existing page is affected.
+   ========================================================================== */
+.form-row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.form-row-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+@media (max-width: 700px) { .form-row-3, .form-row-4 { grid-template-columns: 1fr; } }
+
+.rpt-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.5; }
+.rpt-hint { font-size: 12.3px; color: var(--text-muted); margin-top: 4px; }
+.rpt-chip { display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--line-soft); color: var(--text-muted); font-weight: 600; }
+.rpt-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--line-soft); padding: 1px 6px; border-radius: 4px; }
+.rpt-json { margin: 0; padding: 12px 14px; background: var(--porcelain); border: 1px solid var(--line); border-radius: var(--radius-md); max-height: 280px; overflow: auto; font-size: 12px; }
+.rpt-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; margin: 18px 0 8px; }
+
+/* loading / empty / error / forbidden panel (also used inside widget cards) */
+.rpt-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 36px 20px; min-height: 160px; color: var(--text-faint); }
+.rpt-state-icon { opacity: 0.7; }
+.rpt-state-msg { font-size: 14px; color: var(--text-muted); max-width: 460px; }
+.rpt-state-hint { font-size: 12.5px; color: var(--text-faint); max-width: 460px; }
+.rpt-state-error .rpt-state-icon, .rpt-state-error .rpt-state-msg { color: var(--coral); }
+.rpt-state-forbidden .rpt-state-icon { color: var(--amber); }
+
+/* chart type chooser (widget builder) */
+.rpt-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.rpt-type-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; font-size: 12.8px; font-weight: 600; color: var(--text-muted); text-align: center; }
+.rpt-type-tile:hover { border-color: var(--indigo); color: var(--text); }
+.rpt-type-tile.is-selected { border-color: var(--indigo); background: var(--indigo-tint); color: var(--indigo-dark); }
+.rpt-type-tile.is-disabled { opacity: 0.45; cursor: not-allowed; }
+.rpt-type-tile.is-disabled:hover { border-color: var(--line); color: var(--text-muted); }
+
+/* widget card + chart box (shared renderer, widget builder preview, dashboards) */
+.rpt-widget { display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); min-width: 0; overflow: hidden; }
+.rpt-widget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 12px 16px 0; }
+.rpt-widget-title { font-size: 14px; font-weight: 650; }
+.rpt-widget-sub { font-size: 12px; color: var(--text-faint); }
+.rpt-widget-body { flex: 1; min-height: 0; padding: 10px 16px 14px; position: relative; }
+.rpt-chart-box { position: relative; width: 100%; height: 100%; min-height: 220px; }
+.rpt-chart-box canvas { max-width: 100%; }
+.rpt-kpi { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; height: 100%; min-height: 120px; }
+.rpt-kpi-value { font-size: 36px; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; }
+.rpt-kpi-label { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; }
+.rpt-table-scroll { max-height: 340px; overflow: auto; }
+
+/* dashboard grid: 12 columns, widgets placed with inline grid-column / grid-row */
+.rpt-grid { display: grid; grid-template-columns: repeat(var(--rpt-cols, 12), minmax(0, 1fr)); grid-auto-rows: minmax(var(--rpt-row-h, 90px), auto); gap: 14px; }
+.rpt-filterbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 14px 16px; margin-bottom: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.rpt-filterbar .form-group { margin-bottom: 0; min-width: 160px; }
+@media (max-width: 900px) {
+  .rpt-grid { grid-template-columns: 1fr; }
+  .rpt-grid > * { grid-column: 1 / -1 !important; grid-row: auto !important; }
+}
+.btn[hidden], .rpt-hidden { display: none !important; }

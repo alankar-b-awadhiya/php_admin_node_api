@@ -37,6 +37,11 @@ $navGroups = [
     ['key' => 'social-webhooks', 'href' => 'social-webhooks.php', 'label' => 'Webhook Events', 'icon' => 'key'],
     ['key' => 'social-platforms', 'href' => 'social-platforms.php', 'label' => 'Platforms', 'icon' => 'shield'],
   ]],
+  ['key' => 'reports', 'title' => 'Reports', 'items' => [
+    ['key' => 'report-dashboards', 'href' => 'report-dashboards.php', 'label' => 'Dashboards', 'icon' => 'chart'],
+    ['key' => 'report-widgets', 'href' => 'report-widgets.php', 'label' => 'Widgets', 'icon' => 'widgets'],
+    ['key' => 'report-sources', 'href' => 'report-sources.php', 'label' => 'API Sources', 'icon' => 'plug'],
+  ]],
   ['key' => 'support', 'title' => 'Support', 'items' => [
     ['key' => 'enquiries', 'href' => 'enquiries.php', 'label' => 'Enquiries', 'icon' => 'enquiry'],
     ['key' => 'feedback', 'href' => 'feedback.php', 'label' => 'Feedback', 'icon' => 'star'],
@@ -73,6 +78,9 @@ function nav_icon($name) {
         'enquiry' => '<path d="M2.5 5.5h15v9a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-9Zm.4 0L10 10.6l7.1-5.1H2.9Z"/>',
         'star' => '<path d="M10 1.7l2.7 5.5 6.1.9-4.4 4.3 1 6.1L10 15.4l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L10 1.7Z"/>',
         'clientele' => '<path d="M4 2h4v4H4V2Zm6 0h6v4h-6V2ZM4 8h4v4H4V8Zm6 0h6v4h-6V8ZM4 14h4v4H4v-4Zm6 0h6v4h-6v-4Z"/>',
+        'chart'  => '<path d="M3 17V3h2v12h12v2H3Zm4-3V9h2.5v5H7Zm4 0V5h2.5v9H11Zm4 0v-3.5h2.5V14H15Z"/>',
+        'widgets' => '<path d="M3 3h6v6H3V3Zm8 0h6v3.5h-6V3Zm0 5h6v9h-6V8ZM3 11h6v6H3v-6Z"/>',
+        'plug'   => '<path d="M7 2h2v4h2V2h2v4h1.5v3.5A4.5 4.5 0 0 1 11 14v4H9v-4a4.5 4.5 0 0 1-3.5-4.5V6H7V2Z"/>',
         'gear'   => '<path d="M10 6.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Zm7.4 3.2c0 .4 0 .8-.1 1.1l1.6 1.3-1.6 2.7-1.9-.6c-.6.5-1.3.9-2 1.1L13 18h-3l-.4-2.3c-.7-.2-1.4-.6-2-1.1l-1.9.6-1.6-2.7 1.6-1.3a6 6 0 0 1 0-2.2L4.1 7.7l1.6-2.7 1.9.6c.6-.5 1.3-.9 2-1.1L10 2h3l.4 2.3c.7.2 1.4.6 2 1.1l1.9-.6 1.6 2.7-1.6 1.3c.1.3.1.7.1 1.1Z" stroke="currentColor" stroke-width="0.4"/>',
     ];
     return $icons[$name] ?? '';

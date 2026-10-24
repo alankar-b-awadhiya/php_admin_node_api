@@ -74,6 +74,8 @@
 
   const API = {
     categories: '/products/categories',
+    importTemplate: '/products/import/template',
+    importProducts: '/products/import',
     list: '/products',
     get: (id) => `/products/${id}`,
     update: (id) => `/products/${id}`,
@@ -124,6 +126,7 @@
   async function init() {
     await Admin.requireAuth();
 
+    document.getElementById('btnImportProducts').addEventListener('click', openProductImportModal);
     document.getElementById('btnAddProduct').addEventListener('click', openCreateModal);
     document.getElementById('btnRefreshProducts').addEventListener('click', () => { loadList(true); loadStats(); });
 
@@ -180,6 +183,129 @@
     } catch (err) { /* non-fatal - stat cards just stay blank */ }
   }
   function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+
+  function openProductImportModal() {
+    Admin.openModal(`
+      <form id="productImportForm">
+        <div class="modal-header"><h3>Import Products from Excel</h3><button type="button" class="btn btn-ghost btn-icon" data-act="close" aria-label="Close">&times;</button></div>
+        <div class="modal-body">
+          <p style="margin:0 0 16px;color:var(--text-muted);font-size:13px;">Upload a completed product import workbook. Rows with errors will be reported and valid rows will still be imported.</p>
+          <button class="btn btn-secondary" id="btnDownloadImportTemplate" type="button">${ICON.upload} Download Excel template</button>
+          <div class="form-group" style="margin:18px 0 0;">
+            <label for="productImportFile">Excel workbook</label>
+            <input id="productImportFile" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+          </div>
+          <div id="productImportReport" aria-live="polite"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-act="close">Close</button>
+          <button type="submit" class="btn btn-success" id="btnSubmitProductImport">Upload and import</button>
+        </div>
+      </form>
+    `);
+
+    const backdrop = document.getElementById('modalBackdrop');
+    backdrop.querySelectorAll('[data-act="close"]').forEach((button) => button.addEventListener('click', Admin.closeModal));
+    backdrop.querySelector('#btnDownloadImportTemplate').addEventListener('click', downloadProductImportTemplate);
+    backdrop.querySelector('#productImportForm').addEventListener('submit', submitProductImport);
+  }
+
+  async function downloadProductImportTemplate(event) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      let response = await fetch(API_V2_BASE + API.importTemplate, { credentials: 'include' });
+      if (response.status === 401) {
+        await Admin.api.get('/auth/me');
+        response = await fetch(API_V2_BASE + API.importTemplate, { credentials: 'include' });
+      }
+      if (!response.ok) {
+        let message = `Template download failed (${response.status})`;
+        try { message = (await response.json()).message || message; } catch (err) { /* non-JSON error response */ }
+        throw new Error(message);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'product-import-template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      Admin.toastError(err);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function submitProductImport(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+
+    const file = form.elements.file.files[0];
+    const submitButton = document.getElementById('btnSubmitProductImport');
+    const templateButton = document.getElementById('btnDownloadImportTemplate');
+    const report = document.getElementById('productImportReport');
+    submitButton.disabled = true;
+    templateButton.disabled = true;
+    submitButton.textContent = 'Importing…';
+    report.innerHTML = '<p class="hint">Uploading workbook and processing rows…</p>';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiV2.uploadForm(API.importProducts, formData);
+      const result = response.data || {};
+      renderProductImportReport(result);
+      Admin.toast(result.failed ? 'Import finished with row errors' : 'Products imported successfully', result.failed ? 'info' : 'success');
+      await loadList();
+      loadStats();
+    } catch (err) {
+      report.innerHTML = `<div class="form-errors">${Admin.escapeHtml(err.message || 'Product import failed')}</div>`;
+      Admin.toastError(err);
+    } finally {
+      submitButton.disabled = false;
+      templateButton.disabled = false;
+      submitButton.textContent = 'Upload and import';
+    }
+  }
+
+  function renderProductImportReport(result) {
+    const report = document.getElementById('productImportReport');
+    if (!report) return;
+    const errorRows = Array.isArray(result.errorRows) ? result.errorRows : [];
+    const totals = [
+      ['Rows', result.totalRows ?? 0],
+      ['Imported', result.imported ?? 0],
+      ['Failed', result.failed ?? 0],
+      ['Failure logs saved', result.failuresLogged ?? 0],
+    ];
+    const logWarning = Number(result.failureLogErrors || 0)
+      ? `<p class="field-error">${Number(result.failureLogErrors)} failure detail${Number(result.failureLogErrors) === 1 ? '' : 's'} could not be logged.</p>`
+      : '';
+    const moreErrors = Number(result.errorsTruncated || 0)
+      ? `<p class="hint">${Number(result.errorsTruncated)} additional row error${Number(result.errorsTruncated) === 1 ? '' : 's'} omitted from this report.</p>`
+      : '';
+    const rowsHtml = errorRows.length ? `
+      <div class="table-wrap" style="margin-top:14px;max-height:240px;overflow:auto;">
+        <table>
+          <thead><tr><th>Row</th><th>SKU</th><th>Error</th></tr></thead>
+          <tbody>${errorRows.map((row) => `<tr><td>${Admin.escapeHtml(row.rowNumber ?? '—')}</td><td>${Admin.escapeHtml(row.sku || '—')}</td><td>${Admin.escapeHtml(row.message || 'Import failed')}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>` : '';
+
+    report.innerHTML = `
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft);">
+        <strong>Import report</strong>
+        ${result.importId ? `<p class="hint">Import ID: ${Admin.escapeHtml(result.importId)}</p>` : ''}
+        <div class="flex-gap" style="margin-top:10px;">
+          ${totals.map(([label, value]) => `<span class="badge-outline">${label}: ${Admin.escapeHtml(value)}</span>`).join('')}
+        </div>
+        ${logWarning}${rowsHtml}${moreErrors}
+      </div>`;
+  }
 
   // ---- List / filter / paginate --------------------------------------------
 
