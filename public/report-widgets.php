@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../app/config/config.php';
 $pageTitle = 'Widgets';
 $activeNav = 'report-widgets';
-$pageScriptsBefore = ['vendor/chart.umd.js', 'js/reports-common.js'];
+$pageScriptsBefore = ['vendor/chart.umd.js', 'js/reports-common.js', 'js/reports-render.js'];
 $pageScript = 'report-widgets.js';
 include __DIR__ . '/../app/includes/header.php';
 ?>
@@ -27,6 +27,35 @@ include __DIR__ . '/../app/includes/header.php';
   </div>
 </div>
 
+<div class="card" style="margin-bottom:18px;">
+  <div class="card-body" style="padding:14px 16px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+    <div class="form-group search-field" style="margin-bottom:0;flex:1;min-width:220px;">
+      <label for="wdgSearch">Search</label>
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" style="top:63%;"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M17 17l-3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input type="search" id="wdgSearch" placeholder="Search title or code...">
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label for="wdgType">Chart type</label>
+      <select id="wdgType"><option value="">All</option></select>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label for="wdgSource">Source</label>
+      <select id="wdgSource"><option value="">All</option></select>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label for="wdgStatus">Status</label>
+      <select id="wdgStatus">
+        <option value="">All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+    <button class="btn-square" id="btnRefresh" type="button" title="Refresh">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 0 1 10.2-4.24M16 10a6 6 0 0 1-10.2 4.24M4 3v3.5H7.5M16 17v-3.5H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
 <div class="card">
   <div class="card-header">
     <div class="card-header-lead">
@@ -35,11 +64,23 @@ include __DIR__ . '/../app/includes/header.php';
       </span>
       <h3>Widgets</h3>
     </div>
-    <button class="btn-square" id="btnRefresh" type="button" title="Refresh">
-      <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 0 1 10.2-4.24M16 10a6 6 0 0 1-10.2 4.24M4 3v3.5H7.5M16 17v-3.5H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Refresh
-    </button>
+    <span class="count-pill" id="wdgCount">0 widgets</span>
   </div>
-  <div class="card-body" id="rptMain"></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Widget</th>
+          <th>Type</th>
+          <th>Source</th>
+          <th>Used on</th>
+          <th>Status</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="wdgTableBody"></tbody>
+    </table>
+  </div>
+  <div class="pagination" id="wdgPagination"></div>
 </div>
 <?php include __DIR__ . '/../app/includes/footer.php'; ?>

@@ -1032,3 +1032,37 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
 .rpt-fields-table tr.is-edited td { background: var(--indigo-tint); }
 @media (max-width: 720px) { .rpt-param-grid, .rpt-param-grid2 { grid-template-columns: 1fr; } }
 .rpt-param [hidden], [data-panel][hidden] { display: none !important; }
+
+/* ---- Step 4: widget builder, slots, type tiles, chart renderer ---- */
+.rpt-typecell { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.rpt-type-tile { position: relative; font-family: inherit; }
+.rpt-type-tile .rpt-soon { font-size: 10.5px; font-weight: 650; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.rpt-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; margin: 0 0 6px; cursor: pointer; }
+.rpt-check input { width: auto; margin: 0; }
+
+.rpt-builder { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 22px; align-items: stretch; }
+.rpt-builder-form { min-width: 0; }
+.rpt-builder-preview { min-width: 0; }
+.rpt-preview-pane { position: sticky; top: 0; display: flex; flex-direction: column; gap: 10px; background: var(--porcelain); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 12px; }
+.rpt-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rpt-preview-pane .rpt-widget { min-height: 300px; }
+
+.rpt-slot { margin-bottom: 14px; }
+.rpt-slot-title { font-size: 12.8px; font-weight: 700; margin-bottom: 4px; }
+.rpt-slot-row { margin-bottom: 8px; }
+.rpt-slot-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rpt-slot-main > select, .rpt-slot-main > input { flex: 1 1 96px; min-width: 0; padding: 7px 9px; font-size: 13px; }
+.rpt-slot-main > select[data-k="fid"] { flex: 2 1 150px; }
+.rpt-slot-btns { display: inline-flex; gap: 2px; margin-left: auto; }
+.rpt-slot-btns .btn { padding: 4px 7px; }
+.rpt-slot-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; padding: 10px 12px 2px; background: var(--porcelain); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.rpt-slot-extra .form-group { margin-bottom: 8px; }
+.rpt-slot-extra[hidden], #wb-legendG[hidden], #wb-flagsG[hidden], .rpt-check[hidden] { display: none !important; }
+.rpt-pform { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.rpt-pform .form-group { margin-bottom: 4px; }
+
+.rpt-table-scroll th { position: sticky; top: 0; background: var(--paper); z-index: 1; }
+@media (max-width: 900px) {
+  .rpt-builder { grid-template-columns: 1fr; }
+  .rpt-preview-pane { position: static; }
+}
