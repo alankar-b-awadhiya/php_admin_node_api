@@ -43,6 +43,11 @@
   const NUMERIC_TYPES = ['number', 'currency', 'percent'];
   const isNumericType = (t) => NUMERIC_TYPES.includes(t);
   const CARTESIAN = ['line', 'area', 'bar', 'stacked_bar'];
+  const AXISED = [...CARTESIAN, 'scatter']; // charts with a category/x axis and a value axis
+  /** { gaugeBands:[{to:60,color:'#..'}] } -> "60|#.." per line */
+  function gaugeBandsToText(o) {
+    return (o && Array.isArray(o.gaugeBands) ? o.gaugeBands : []).map((b) => `${b.to}|${b.color}`).join('\n');
+  }
   const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
   /** { sliceColors:{North:'#..'}, palette:['#..'] } -> "North|#..\n#.." */
   function sliceColorsToText(o) {
@@ -59,8 +64,8 @@
       ...['pie', 'donut'].map((type) => ({ type, supported: true, uses: { label: { min: 1, max: 1 }, value: { min: 1, max: 1 }, sort: { min: 0, max: 1 } } })),
       { type: 'kpi', supported: true, uses: { value: { min: 1, max: 1 } } },
       { type: 'table', supported: true, uses: { label: { min: 1, max: 50 }, sort: { min: 0, max: 3 } } },
-      { type: 'scatter', supported: false, uses: {} },
-      { type: 'gauge', supported: false, uses: {} },
+      { type: 'scatter', supported: true, uses: { x: { min: 1, max: 1 }, value: { min: 1, max: 1 }, group_by: { min: 0, max: 1 }, label: { min: 0, max: 1 } } },
+      { type: 'gauge', supported: true, uses: { value: { min: 1, max: 1 } } },
     ],
     aggregations: ['none', 'sum', 'avg', 'min', 'max', 'count', 'count_distinct'],
   };
@@ -283,6 +288,8 @@
     cartesian: { x: 'X axis (category or time)', value: 'Values (the numbers to plot)', group_by: 'Split into series by (optional)', sort: 'Sort by (optional)' },
     pie: { label: 'Slice label', value: 'Slice value', sort: 'Sort by (optional)' },
     kpi: { value: 'Value' },
+    scatter: { x: 'X axis (a number or a date)', value: 'Y axis (a number)', group_by: 'Color points by (optional)', label: 'Point caption (optional, shown on hover)' },
+    gauge: { value: 'Value (the dial reading)' },
     table: { label: 'Columns', sort: 'Sort rows by (optional, up to 3)' },
   };
   const useTitle = (type, use) => {
@@ -296,6 +303,12 @@
     label: 'Rows with the same label are combined.',
     sort: 'Must be one of the fields mapped above.',
   };
+  // per chart type overrides of the generic slot hints
+  const TYPE_HINTS = {
+    scatter: { x: 'One field, number or date. Each row becomes one point (rows are not combined).', value: 'One numeric field, plotted as is (no aggregation).', group_by: 'One color / series per distinct value. Up to 30.', label: 'Shown in the tooltip of each point.' },
+    gauge: { value: 'Aggregated over all rows, then drawn on the min–max dial set under Display & limits.' },
+  };
+  const slotHint = (type, use) => (TYPE_HINTS[type] && TYPE_HINTS[type][use]) || USE_HINTS[use];
   const ALL_USES = ['x', 'label', 'group_by', 'value', 'sort'];
 
   function openBuilder(listRow) {
@@ -413,6 +426,17 @@
                   <div class="form-group" id="wb-labelsG"><label>Labels</label>
                     <label class="rpt-check"><input type="checkbox" id="wb-dlabels" ${S.opts.dataLabels ? 'checked' : ''}> Show values on the chart</label></div>
                 </div>
+                <div id="wb-gaugeG">
+                  <div class="form-row">
+                    <div class="form-group"><label for="wb-gmin">Dial minimum</label>
+                      <input type="number" id="wb-gmin" step="any" placeholder="0" value="${esc(S.opts.gaugeMin ?? '')}"></div>
+                    <div class="form-group"><label for="wb-gmax">Dial maximum</label>
+                      <input type="number" id="wb-gmax" step="any" placeholder="100" value="${esc(S.opts.gaugeMax ?? '')}"></div>
+                  </div>
+                  <div class="form-group"><label for="wb-gbands">Color bands</label>
+                    <textarea id="wb-gbands" rows="3" class="rpt-mono" placeholder="60|#e5484d&#10;80|#e8a33d&#10;100|#1a9c6b">${esc(gaugeBandsToText(S.opts))}</textarea>
+                    <div class="rpt-hint">One per line: <span class="rpt-code">upTo|#hex</span>, increasing. The dial takes the color of the band the value falls in. Blank = the theme color.</div></div>
+                </div>
                 <div class="form-group" id="wb-sliceG"><label for="wb-slices">Slice colors</label>
                   <textarea id="wb-slices" rows="3" class="rpt-mono" placeholder="North|#1a9c6b&#10;South|#e5484d&#10;#7c3aed">${esc(sliceColorsToText(S.opts))}</textarea>
                   <div class="rpt-hint">One per line: <span class="rpt-code">Label|#hex</span> colors that slice; a bare <span class="rpt-code">#hex</span> line colors slices in order. Others keep the theme colors.</div></div>
@@ -472,6 +496,7 @@
     function defaultAgg(fid, use) {
       if (use !== 'value') return '';
       const f = fieldById(fid);
+      if (S.chartType === 'scatter') return 'none';
       return f && isNumericType(f.dataType) ? 'sum' : 'count';
     }
 
@@ -489,6 +514,15 @@
       const needs = (use) => minOf(use) > 0 && !S.map[use].some((e) => e.fid);
       const t = S.chartType;
       ensureSlots();
+      if (t === 'scatter') {
+        // x: a time or numeric field, y: a different numeric field
+        const nums = pool.filter((f) => isNumericType(f.dataType));
+        const xf = time || nums[0] || pool[0];
+        const yf = nums.find((f) => f !== xf) || nums[0] || pool[0];
+        if (needs('x')) S.map.x[0] = entry({ fid: String(xf.id) });
+        if (needs('value')) S.map.value[0] = entry({ fid: String(yf.id), agg: 'none' });
+        return;
+      }
       if (needs('x')) S.map.x[0] = entry({ fid: String(fresh([time, dim, ...pool]).id) });
       if (needs('label')) {
         if (t === 'table') S.map.label = pool.slice(0, 5).map((f) => entry({ fid: String(f.id) }));
@@ -521,7 +555,7 @@
       const pie = t === 'pie' || t === 'donut';
       const lineish = t === 'line' || t === 'area' || t === 'bar';
       const barish = t === 'bar' || t === 'stacked_bar';
-      $('wb-legendG').hidden = !(CARTESIAN.includes(t) || pie);
+      $('wb-legendG').hidden = !(AXISED.includes(t) || pie);
       $('wb-smoothL').hidden = !lineish;
       $('wb-horizL').hidden = !barish;
       $('wb-flagsG').hidden = !(lineish || barish);
@@ -531,11 +565,14 @@
       ], S.opts.legend || '');
       $('wb-smooth').checked = !!S.opts.smooth;
       $('wb-horiz').checked = !!S.opts.horizontal;
-      const cart = CARTESIAN.includes(t);
-      $('wb-chartG').hidden = !(cart || pie);
-      $('wb-axisG').hidden = !cart;
-      $('wb-rangeG').hidden = !cart;
+      const axised = AXISED.includes(t);
+      const gauge = t === 'gauge';
+      $('wb-chartG').hidden = !(axised || pie || gauge);
+      $('wb-axisG').hidden = !axised;
+      $('wb-rangeG').hidden = !axised;
       $('wb-sliceG').hidden = !pie;
+      $('wb-gaugeG').hidden = !gauge;
+      $('wb-labelsG').hidden = !(CARTESIAN.includes(t) || pie);
     }
 
     // ---- slots ----------------------------------------------------------------------
@@ -556,7 +593,7 @@
       const f = fieldById(e.fid);
       const numeric = f && isNumericType(f.dataType);
       const list = META.aggregations
-        .filter((a) => a !== 'none' || S.chartType === 'kpi')
+        .filter((a) => (S.chartType === 'scatter' ? a === 'none' : a !== 'none' || S.chartType === 'kpi' || S.chartType === 'gauge'))
         .filter((a) => numeric || !['sum', 'avg', 'min', 'max'].includes(a));
       return Reports.optionsHtml(list.map((v) => ({ value: v, label: Reports.labelOf(Reports.AGGREGATIONS, v) })), e.agg || defaultAgg(e.fid, 'value'));
     }
@@ -567,11 +604,12 @@
       const canRemove = count > floorOf(use);
       const isValue = use === 'value';
       const cart = CARTESIAN.includes(S.chartType);
+      const scat = S.chartType === 'scatter';
       const extra = [];
-      if (isValue && cart) {
-        extra.push(`<div class="form-group"><label>Draw as</label><select data-k="sType">${Reports.optionsHtml([
+      if (isValue && (cart || scat)) {
+        if (cart) extra.push(`<div class="form-group"><label>Draw as</label><select data-k="sType">${Reports.optionsHtml([
           { value: '', label: 'Chart default' }, { value: 'bar', label: 'Bars' }, { value: 'line', label: 'Line' }, { value: 'area', label: 'Area' }], e.sType)}</select></div>`);
-        extra.push(`<div class="form-group"><label>Y axis</label><select data-k="yAxis">${Reports.optionsHtml([
+        if (cart) extra.push(`<div class="form-group"><label>Y axis</label><select data-k="yAxis">${Reports.optionsHtml([
           { value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }], e.yAxis)}</select></div>`);
         extra.push(`<div class="form-group"><label>Color</label><div style="display:flex;gap:8px;align-items:center;height:36px;">
           <label class="rpt-check" style="margin:0;"><input type="checkbox" data-k="colorOn" ${e.color ? 'checked' : ''}> Custom</label>
@@ -614,7 +652,7 @@
           ? `<button type="button" class="btn btn-secondary btn-sm" data-sl="add" data-use="${use}">+ Add ${use === 'label' ? 'column' : use === 'sort' ? 'sort' : 'value'}</button>` : '';
         return `<div class="rpt-slot" data-slot="${use}">
           <div class="rpt-slot-title">${esc(useTitle(S.chartType, use))}${minOf(use) ? ' <span style="color:var(--coral);">*</span>' : ''}</div>
-          ${USE_HINTS[use] ? `<div class="rpt-hint" style="margin:0 0 6px;">${esc(USE_HINTS[use])}</div>` : ''}
+          ${slotHint(S.chartType, use) ? `<div class="rpt-hint" style="margin:0 0 6px;">${esc(slotHint(S.chartType, use))}</div>` : ''}
           ${S.map[use].map((e, i) => rowHtml(use, e, i)).join('')}
           ${addBtn}
         </div>`;
@@ -646,7 +684,15 @@
       }
       const lim = S.rowLimit.trim();
       if (lim && !(Number.isInteger(Number(lim)) && Number(lim) >= 1 && Number(lim) <= 10000)) errors.push('Row limit must be a whole number from 1 to 10000.');
-      if (CARTESIAN.includes(S.chartType)) {
+      if (S.chartType === 'gauge') {
+        const gl = numOrNull(S.opts.gaugeMin); const gh = numOrNull(S.opts.gaugeMax);
+        if ((gl === null ? 0 : gl) >= (gh === null ? 100 : gh)) errors.push('Dial minimum must be lower than the maximum.');
+        const gb = parseBands(S.bandsText !== undefined ? S.bandsText : gaugeBandsToText(S.opts));
+        errors.push(...gb.errors);
+        const top = gh === null ? 100 : gh;
+        if (!gb.errors.length && gb.bands.some((b) => b.to > top)) errors.push(`Color bands: a band goes above the dial maximum (${top}).`);
+      }
+      if (AXISED.includes(S.chartType)) {
         const lo = numOrNull(S.opts.yMin); const hi = numOrNull(S.opts.yMax);
         if (lo !== null && hi !== null && lo >= hi) errors.push('Value axis minimum must be lower than the maximum.');
       }
@@ -693,7 +739,7 @@
             series_label: e.label.trim() || null,
             series_chart_type: use === 'value' && cart && e.sType ? e.sType : null,
             y_axis: use === 'value' && cart ? (e.yAxis || 'left') : 'left',
-            color: use === 'value' && cart && e.color ? e.color : null,
+            color: use === 'value' && (cart || S.chartType === 'scatter') && e.color ? e.color : null,
             sort_dir: use === 'sort' ? (e.sortDir || 'asc') : null,
             display_format: (use === 'value' || use === 'label') && e.format.trim() ? e.format.trim() : null,
           });
@@ -714,18 +760,40 @@
       });
       return { sliceColors, palette, errors };
     }
+    /** "60|#e5484d\n80|#e8a33d" -> { bands:[{to,color}], errors } */
+    function parseBands(text) {
+      const bands = []; const errors = [];
+      let prev = -Infinity;
+      String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).forEach((line, i) => {
+        const cut = line.indexOf('|');
+        const to = Number(cut === -1 ? NaN : line.slice(0, cut).trim());
+        const color = cut === -1 ? '' : line.slice(cut + 1).trim();
+        if (!Number.isFinite(to) || !HEX_RE.test(color)) { errors.push(`Color bands, line ${i + 1}: use “upTo|#hex”, for example 60|#e5484d.`); return; }
+        if (to <= prev) { errors.push(`Color bands, line ${i + 1}: the numbers must increase.`); return; }
+        prev = to;
+        bands.push({ to, color });
+      });
+      return { bands, errors };
+    }
     const numOrNull = (v) => { const t = String(v === undefined || v === null ? '' : v).trim(); return t !== '' && isFinite(Number(t)) ? Number(t) : null; };
 
     function cleanOptions() {
       const o = { ...S.opts };
-      const cart = CARTESIAN.includes(S.chartType);
+      const cart = AXISED.includes(S.chartType);
       const pie = S.chartType === 'pie' || S.chartType === 'donut';
+      const gauge = S.chartType === 'gauge';
       ['legend', 'smooth', 'horizontal', 'dataLabels', 'xTitle', 'yTitle'].forEach((k) => { if (!o[k]) delete o[k]; });
-      ['yMin', 'yMax', 'height'].forEach((k) => { const n = numOrNull(o[k]); if (n === null) delete o[k]; else o[k] = n; });
+      ['yMin', 'yMax', 'height', 'gaugeMin', 'gaugeMax'].forEach((k) => { const n = numOrNull(o[k]); if (n === null) delete o[k]; else o[k] = n; });
       if (!(S.chartType === 'bar' || S.chartType === 'stacked_bar')) delete o.horizontal;
       if (!(S.chartType === 'line' || S.chartType === 'area' || S.chartType === 'bar')) delete o.smooth;
       if (!cart) { ['xTitle', 'yTitle', 'yMin', 'yMax'].forEach((k) => delete o[k]); }
-      if (!(cart || pie)) { delete o.dataLabels; delete o.height; }
+      if (!(CARTESIAN.includes(S.chartType) || pie)) delete o.dataLabels;
+      if (!(cart || pie || gauge)) delete o.height;
+      if (gauge) {
+        const gb = parseBands(S.bandsText !== undefined ? S.bandsText : gaugeBandsToText(o));
+        if (gb.bands.length) o.gaugeBands = gb.bands; else delete o.gaugeBands;
+      } else { delete o.gaugeMin; delete o.gaugeMax; delete o.gaugeBands; }
+      if (S.chartType !== 'line' && S.chartType !== 'area' && S.chartType !== 'bar') delete o.smooth;
       if (pie) {
         const sc = parseSliceColors(S.sliceText !== undefined ? S.sliceText : sliceColorsToText(o));
         if (Object.keys(sc.sliceColors).length) o.sliceColors = sc.sliceColors; else delete o.sliceColors;
@@ -824,6 +892,8 @@
       ALL_USES.forEach((use) => { if (!u[use]) S.map[use] = []; });
       if (!CARTESIAN.includes(next)) S.map.value.forEach((e) => { e.sType = ''; e.yAxis = 'left'; e.color = ''; });
       if (next === 'table') S.map.label.forEach((e) => { e.agg = ''; });
+      if (next === 'scatter') S.map.value.forEach((e) => { e.agg = 'none'; });
+      else if (next !== 'kpi') S.map.value.forEach((e) => { if (e.agg === 'none') e.agg = ''; }); // back to the default (sum / count)
       ensureSlots();
       pruneSorts();
       autoFill();
@@ -866,6 +936,9 @@
     $('wb-ymax').addEventListener('input', (e) => { S.opts.yMax = e.target.value; schedulePreview(500); });
     $('wb-height').addEventListener('input', (e) => { S.opts.height = e.target.value; schedulePreview(500); });
     $('wb-dlabels').addEventListener('change', (e) => { S.opts.dataLabels = e.target.checked; schedulePreview(200); });
+    $('wb-gmin').addEventListener('input', (e) => { S.opts.gaugeMin = e.target.value; schedulePreview(500); });
+    $('wb-gmax').addEventListener('input', (e) => { S.opts.gaugeMax = e.target.value; schedulePreview(500); });
+    $('wb-gbands').addEventListener('input', (e) => { S.bandsText = e.target.value; schedulePreview(500); });
     $('wb-slices').addEventListener('input', (e) => { S.sliceText = e.target.value; schedulePreview(500); });
     $('wb-prevBtn').addEventListener('click', runPreview);
     $('wb-pparams').addEventListener('change', (e) => {

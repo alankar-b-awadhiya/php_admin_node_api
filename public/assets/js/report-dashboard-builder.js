@@ -208,21 +208,23 @@ const ReportsDashBuilder = (function () {
       <details class="card" id="dbPreview" style="margin-top:18px;">
         <summary class="card-header" style="cursor:pointer;list-style:none;">
           <div class="card-header-lead"><h3>Preview</h3></div>
-          <span class="rpt-hint" style="margin:0;" id="dbPreviewNote">The saved version, in the real viewer</span>
+          <span class="rpt-hint" style="margin:0;" id="dbPreviewNote">Your current (even unsaved) layout, in the real viewer</span>
         </summary>
         <div class="card-body">
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
             <button type="button" class="btn btn-secondary btn-sm" id="dbPreviewReload">Reload preview</button>
-            <span class="rpt-hint" style="margin:0;">Unsaved changes do not show here — save first.</span>
+            <span class="rpt-hint" style="margin:0;">Runs what is on screen right now; nothing is saved. Press Reload after you change something.</span>
           </div>
           <iframe id="dbPreviewFrame" class="rpt-preview-frame" title="Dashboard preview"></iframe>
         </div>
       </details>`;
 
-    // ---- preview (the real viewer, embedded; shows the SAVED version) ---------------------
+    // ---- preview (the real viewer, embedded; runs the UNSAVED draft) ---------------------
     const prevEl = $('dbPreview');
     const prevFrame = $('dbPreviewFrame');
-    const prevSrc = `report-dashboards.php${Admin.qs({ _d: code, embed: 1 })}`;
+    const prevSrc = `report-dashboards.php${Admin.qs({ _d: code, embed: 1, draft: 1 })}`;
+    // the embedded viewer (same origin) reads the on-screen state from here and POSTs it to /report-dashboards/preview
+    window.__rptDraft = () => { const c = collect(); return { errs: c.errs, body: { dashboard_id: B.def.id, ...c.body } }; };
     const loadPreview = () => { prevFrame.src = 'about:blank'; setTimeout(() => { prevFrame.src = prevSrc; }, 30); };
     prevEl.addEventListener('toggle', () => { if (prevEl.open && !prevFrame.getAttribute('src')) prevFrame.src = prevSrc; });
     $('dbPreviewReload').addEventListener('click', (e) => { e.preventDefault(); loadPreview(); });

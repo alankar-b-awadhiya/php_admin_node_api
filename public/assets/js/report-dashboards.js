@@ -283,8 +283,12 @@
       pending: false,         // an auto-refresh came due while the tab was hidden
     };
 
+    // Builder preview: ?draft=1 inside the embedded viewer runs the builder's unsaved state instead of the stored dashboard.
+    const DRAFT = new URLSearchParams(location.search).get('draft') === '1' && typeof window.parent.__rptDraft === 'function';
+    const draftFilters = (list) => list.map((f) => ({ key: f.filter_key, label: f.filter_label, dataType: f.data_type, parentKey: f.parent_filter_key || null, optionsSourceId: f.options_source_id || null, optionValueField: f.option_value_field || null, optionLabelField: f.option_label_field || null, options: f.options || null, defaultValue: f.default_value || null, isRequired: !!Number(f.is_required), sortOrder: 0 }));
+
     // Filter values may arrive in the link before we know which filters exist; keep them all, trim on the first answer.
-    new URLSearchParams(location.search).forEach((v, k) => { if (k !== '_d' && k !== 'refresh' && k !== 'edit' && k !== 'embed') V.values[k] = v; });
+    new URLSearchParams(location.search).forEach((v, k) => { if (k !== '_d' && k !== 'refresh' && k !== 'edit' && k !== 'embed' && k !== 'draft') V.values[k] = v; });
 
     const errList = (err) => (err && Array.isArray(err.errors) ? err.errors.filter((e) => typeof e === 'string' && !/^reason:/i.test(e)) : []);
 
@@ -292,6 +296,7 @@
     function syncUrl() {
       const q = { _d: code };
       if (new URLSearchParams(location.search).get('embed') === '1') q.embed = 1;
+      if (DRAFT) q.draft = 1;
       Object.entries(V.values).forEach(([k, v]) => { if (v) q[k] = v; });
       try { history.replaceState(null, '', `${location.pathname}${Admin.qs(q)}`); } catch (e) { /* ignore */ }
     }
@@ -572,7 +577,14 @@
       if (onlyFailed) markFailedLoading();
       setBusy(!onlyFailed);
       try {
-        const res = await Admin.api.get(API.data(code) + Admin.qs({ ...cleanValues(), refresh: fresh ? 1 : '' }));
+        let res;
+        if (DRAFT) {
+          const d = window.parent.__rptDraft();
+          if (d.errs.length) { showState('error', 'Fix these in the builder first:', d.errs.join(' · ')); return; }
+          res = await Admin.api.post(API.preview + Admin.qs(cleanValues()), d.body);
+        } else {
+          res = await Admin.api.get(API.data(code) + Admin.qs({ ...cleanValues(), refresh: fresh ? 1 : '' }));
+        }
         if (my !== V.seq) return;
         onData(res.data, onlyFailed);
       } catch (err) {
@@ -614,11 +626,12 @@
     }
 
     async function onLoadError(err) {
+      if (DRAFT && err && err.status === 422 && err.message !== 'Invalid filters') { showState('error', 'The draft is not valid yet.', errList(err).join(' · ')); return; }
       if (err && err.status === 422 && Array.isArray(err.errors)) {
         // A required filter is empty or a value is invalid. That answer has no filter definitions, so read them once.
         if (!V.haveDefs) {
           try {
-            const def = (await Admin.api.get(API.one(code))).data.dashboard;
+            const def = DRAFT ? { ...(await Admin.api.get(API.one(code))).data.dashboard, filters: draftFilters(window.parent.__rptDraft().body.filters) } : (await Admin.api.get(API.one(code))).data.dashboard;
             setHeader(def);
             V.filters = def.filters || [];
             V.haveDefs = true;
@@ -662,20 +675,31 @@
       load({ fresh: true });
     });
 
-    // "Pin to home": remembered in this browser (Reports.pinned); the home page shows the pinned dashboard.
+    // "Pin to home": saved on the server (follows the user to any browser). Editors also get "Pin for everyone".
     const pinBtn = $('dvPin');
+    const pinAll = document.createElement('button');
+    pinAll.type = 'button'; pinAll.className = pinBtn.className; pinAll.id = 'dvPinAll';
+    pinBtn.insertAdjacentElement('afterend', pinAll);
+    const embedded = new URLSearchParams(location.search).get('embed') === '1';
     const paintPin = () => {
-      const on = Reports.pinned.get() === code;
-      pinBtn.textContent = on ? 'Unpin from home' : 'Pin to home';
+      const own = Reports.pinned.get() === code && !Reports.pinned.isGlobal();
+      const all = Reports.pinned.globalCode() === code;
+      pinBtn.textContent = own ? 'Unpin from home' : 'Pin to home';
+      pinAll.textContent = all ? 'Unpin for everyone' : 'Pin for everyone';
+      pinBtn.hidden = embedded;
+      pinAll.hidden = embedded || !Reports.access.can('report-dashboards', 'edit') || !Reports.pinned.serverBacked();
     };
-    pinBtn.hidden = new URLSearchParams(location.search).get('embed') === '1';
     paintPin();
-    pinBtn.addEventListener('click', () => {
-      if (Reports.pinned.get() === code) { Reports.pinned.clear(); Admin.toast('Unpinned from the home page.', 'success'); }
-      else if (Reports.pinned.set(code)) Admin.toast('Pinned. It now shows on the home page in this browser.', 'success');
-      else Admin.toast('This browser blocked saving the pin.', 'error');
+    Reports.pinned.load().then(paintPin);
+    const doPin = async (scope) => {
+      const on = scope === 'global' ? Reports.pinned.globalCode() === code : (Reports.pinned.get() === code && !Reports.pinned.isGlobal());
+      if (on) { await Reports.pinned.clear(scope); Admin.toast(scope === 'global' ? 'Unpinned for everyone.' : 'Unpinned from the home page.', 'success'); }
+      else if (await Reports.pinned.set(code, scope)) Admin.toast(scope === 'global' ? 'Pinned for everyone on the home page.' : 'Pinned. It now shows on your home page.', 'success');
+      else Admin.toast('Could not save the pin.', 'error');
       paintPin();
-    });
+    };
+    pinBtn.addEventListener('click', () => doPin('user'));
+    pinAll.addEventListener('click', () => doPin('global'));
 
     load({});
   }

@@ -50,6 +50,8 @@ const Reports = (function () {
       status: (id) => `/report-dashboards/${id}/status`,
       filters: (id) => `/report-dashboards/${id}/filters`,   // PUT { filters: [...] }
       layout: (id) => `/report-dashboards/${id}/layout`,     // PUT { widgets: [...] }
+      pin: '/report-dashboards/pin',                         // GET / PUT { dashboard, scope } / DELETE ?scope=
+      preview: '/report-dashboards/preview',                 // POST { dashboard_id, grid_columns, filters[], widgets[] } - runs UNSAVED state
       data: (ref) => `/report-dashboards/${ref}/data`,       // ?<filter_key>=<v>&refresh=1
       filterOptions: (ref, key) => `/report-dashboards/${ref}/filters/${encodeURIComponent(key)}/options`,
     },
@@ -106,8 +108,8 @@ const Reports = (function () {
     { type: 'donut', label: 'Donut', supported: true, hint: 'Pie with a hole' },
     { type: 'kpi', label: 'KPI number', supported: true, hint: 'One big number' },
     { type: 'table', label: 'Table', supported: true, hint: 'Rows and columns' },
-    { type: 'scatter', label: 'Scatter', supported: false, hint: 'Coming soon' },
-    { type: 'gauge', label: 'Gauge', supported: false, hint: 'Coming soon' },
+    { type: 'scatter', label: 'Scatter', supported: true, hint: 'Relationship between two numbers' },
+    { type: 'gauge', label: 'Gauge', supported: true, hint: 'One number on a dial' },
   ];
 
   const CHART_ICONS = {
@@ -533,14 +535,51 @@ const Reports = (function () {
     return { load, can, apply, lockInside };
   })();
 
-  // ---- Pinned dashboard (per user, per browser) ---------------------------------------
-  // Stored in localStorage only (no API change). Cleared storage / another browser = nothing pinned.
+  // ---- Pinned dashboard ---------------------------------------------------------------
+  // Stored on the server (GET/PUT/DELETE /report-dashboards/pin): follows the user to any browser, and an editor can
+  // pin one for everybody. localStorage is only the fallback when that API is not there (older backend) or fails.
+  //   await pinned.load()            -> fills the cache; call once before get()
+  //   pinned.get()                   -> code of the effective pin ('' = none): own pin, else the one for everyone
+  //   pinned.info()                  -> { scope: 'user'|'global'|'local', code, title } | null
+  //   await pinned.set(code, scope)  -> true/false;  await pinned.clear(scope)
   const pinned = (function () {
     const key = () => { const me = Admin.getMe(); return `rpt_pinned_dashboard:${(me && (me.id !== undefined ? me.id : me.username)) || 'anon'}`; };
-    return {
+    const ls = {
       get() { try { return localStorage.getItem(key()) || ''; } catch (e) { return ''; } },
       set(code) { try { localStorage.setItem(key(), String(code)); return true; } catch (e) { return false; } },
       clear() { try { localStorage.removeItem(key()); } catch (e) { /* ignore */ } },
+    };
+    let cache = null; // { pin, own, global } from the server, or null = server not usable
+    const take = (res) => { const d = (res && res.data) || {}; cache = { pin: d.pin || null, own: d.own || null, global: d.global || null }; return cache; };
+    return {
+      async load() {
+        try { take(await Admin.api.get(API.dashboards.pin)); } catch (e) { cache = null; }
+        return cache;
+      },
+      serverBacked() { return cache !== null; },
+      get() { return cache ? (cache.pin ? cache.pin.code : '') : ls.get(); },
+      info() {
+        if (cache) return cache.pin;
+        const c = ls.get();
+        return c ? { scope: 'local', code: c, title: c } : null;
+      },
+      /** True when the pin in force was set for everybody (and the user has no pin of their own). */
+      isGlobal() { return !!(cache && cache.pin && cache.pin.scope === 'global'); },
+      globalCode() { return cache && cache.global ? cache.global.code : ''; },
+      async set(code, scope) {
+        if (cache) {
+          try { take(await Admin.api.put(API.dashboards.pin, { dashboard: code, scope: scope === 'global' ? 'global' : 'user' })); return true; } catch (e) {
+            if (e && (e.status === 403 || e.status === 409 || e.status === 404)) { Admin.toast(e.message || 'Could not pin this dashboard.', 'error'); return false; }
+          }
+        }
+        return ls.set(code); // server not reachable: remember it in this browser
+      },
+      async clear(scope) {
+        if (cache) {
+          try { take(await Admin.api.del(`${API.dashboards.pin}${Admin.qs({ scope: scope === 'global' ? 'global' : 'user' })}`)); return; } catch (e) { /* fall through */ }
+        }
+        ls.clear();
+      },
     };
   })();
 

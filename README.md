@@ -125,7 +125,7 @@ The **Reports** sidebar group has three pages. They talk to the `ms_reports` ser
 | Page | File | What it does |
 |---|---|---|
 | API Sources | `report-sources.php` + `js/report-sources.js` | Register an internal or external API (URL, method, auth, response path, params/headers JSON, cache). **Test API** previews rows and detects fields. The detail view holds the params editor, the field catalogue (type + dimension/measure role), cache clear and the run log. Saved credentials are never shown again — only "set". |
-| Widgets | `report-widgets.php` + `js/report-widgets.js` | Pick a source and a chart type (line, area, bar, stacked bar, pie, donut, KPI, table; scatter and gauge are "coming soon"). Mapping slots change with the chart type. A live preview (`POST /report-widgets/preview`) shows the chart before you save. |
+| Widgets | `report-widgets.php` + `js/report-widgets.js` | Pick a source and a chart type (line, area, bar, stacked bar, pie, donut, KPI, table, scatter, gauge). Mapping slots change with the chart type. A live preview (`POST /report-widgets/preview`) shows the chart before you save. |
 | Dashboards | `report-dashboards.php` + `js/report-dashboards.js`, `js/report-dashboard-builder.js` | List, viewer and layout builder (below). |
 
 Shared pieces: `js/reports-render.js` (`ReportsRender.renderWidget(el, payload, opts)` — one renderer for the widget
@@ -144,10 +144,13 @@ Chart colors come from the theme panel's CSS variables and redraw when the theme
   new row). Filters (key, label, type, default, required, parent, fixed options or an options source) and per-widget
   param bindings (`@filter_key` or a fixed value) are edited here. Save is **one** `PATCH /report-dashboards/:id`
   carrying `grid_columns`, `filters[]` and `widgets[]`, which the API writes in a single transaction. A **Preview**
-  panel embeds the real viewer (`&embed=1`, no sidebar / top bar) and shows the *saved* version.
+  panel embeds the real viewer (`&embed=1&draft=1`, no sidebar / top bar) and runs the **unsaved** on-screen state through
+  `POST /report-dashboards/preview` (nothing is written). Press *Reload preview* after a change.
 - **Pinned dashboard** — "Pin to home" in the viewer (or the chooser on `dashboard.php`) shows that dashboard as a card
-  on the home page. The pin is remembered **in this browser only** (`localStorage`); nothing is stored on the server.
-  The card stays hidden for users who cannot list dashboards.
+  on the home page. The pin is stored **on the server** (`GET/PUT/DELETE /report-dashboards/pin`), so it follows the user to
+  any browser; users with `report-dashboards:edit` can also "Pin for everyone" (default for users without their own pin).
+  If the pin API is missing (older backend) it falls back to `localStorage`. The card stays hidden for users who cannot
+  list dashboards.
 
 ### Widget chart options
 

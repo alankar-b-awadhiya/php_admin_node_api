@@ -38,6 +38,8 @@ Sidebar mein **Reports** group hai: **Dashboards**, **Widgets**, **API Sources**
 2. `.env` mein ye chahiye: `DB_REPORTS_*`, `MS_REPORTS_PORT`, `REPORTS_ENC_KEY`
    (32 bytes base64: `openssl rand -base64 32`). Optional: `REPORTS_INTERNAL_BASE_URL`, `REPORTS_ALLOWED_HOSTS`.
 3. `ms_reports` service chalao (`npm run dev:reports`). Gateway par `/api/v1/report-*` ka route ho.
+   **Naya (step 9):** pin ke liye ek table chahiye. `database/reports_pins_migration.sql` ek baar chalao
+   (`report_dashboard_pins`). Safe hai, dobara chalane par kuch nahi bigadta. Bina iske pin localStorage par fallback ho jaata hai.
 4. **`GET /auth/my-permissions`** (step 7 ka chhota patch): `apis_step7_my_permissions.zip` ke 3 files `ms_master` mein daalo
    (`masterAuth.controller.js`, `masterAuth.routes.js`, `masterAuth.service.js`) aur restart karo.
    Iske bina UI buttons chhupana kaam nahi karta (buttons dikhte rehte hain, par API 403 deti hai).
@@ -46,7 +48,7 @@ Sidebar mein **Reports** group hai: **Dashboards**, **Widgets**, **API Sources**
 ### 2.2 UI (PHP admin panel)
 
 1. UI zips ke files apne repo mein merge karo (path same rakho: `public/…`, `app/config/config.php`).
-2. `app/config/config.php` mein `ASSET_VERSION` badhao (abhi `1.17.0`), warna browser purani JS/CSS cache se dikhayega.
+2. `app/config/config.php` mein `ASSET_VERSION` badhao (abhi `1.18.0`), warna browser purani JS/CSS cache se dikhayega.
 3. `.env` (UI) mein `ABA_API_BASE_URL` API ka URL ho, `/api/v1` ke saath.
 4. Chart.js local file `public/assets/vendor/chart.umd.js` se aata hai. CDN ki zaroorat nahi.
 
@@ -158,7 +160,8 @@ Chart type badalne par mapping slots badalte hain.
 | **Pie / Donut** | Label, Value | Share of whole |
 | **KPI** | Sirf Value | Ek bada number |
 | **Table** | Columns (fields), Sort rows by (optional, max 3) | Rows aur columns |
-| Gauge, Scatter | — | "Coming soon", disabled (backend abhi reject karta hai) |
+| **Scatter** | X (number ya date), Y (number), optional "Color points by", optional "Point caption" | Do numbers ka rishta (jaise orders vs revenue) |
+| **Gauge** | Sirf Value (aggregate hota hai) + dial min/max + color bands | Ek number target ke mukable (speedometer jaisa) |
 
 Har slot ke saath:
 
@@ -166,6 +169,23 @@ Har slot ke saath:
   `sum/avg/min/max` sirf number fields par chalte hain; text field par `count` ya `count distinct` use karo.
 - **Sort** (ascending/descending) aur sort-by field.
 - Series ke liye "More options" (cog icon): **Draw as** (bar/line/area), **Y axis** (left/right), color, label.
+
+**Scatter ke baare mein:** har row ek point banti hai (rows combine nahi hoti, isliye aggregation sirf `none`).
+X ke liye number ya date field chuno, text field nahi (server hi mana kar deta hai). "Color points by" dene par har distinct
+value ki alag series/color banti hai (max 30). Max 5000 points. Axis titles aur min/max (Chart options) yahan bhi chalte hain.
+
+**Gauge ke baare mein:** Value field ka `sum/avg/min/max/count` nikalta hai aur ek half-dial par dikhata hai.
+Advanced section mein **Dial minimum / maximum** (default 0 aur 100) aur **Color bands** bharo. Bands ek line mein ek:
+`upTo|#hexcolor`, increasing order mein, jaise:
+
+```
+300000|#e5484d
+700000|#e8a33d
+1000000|#1a9c6b
+```
+
+Dial us band ka color leta hai jisme value girti hai (blank = theme color). Value dial ke max se upar ho to dial full dikhta hai
+(asli number text mein dikhta hai). Rules: min < max, bands badhte hue aur max se upar nahi.
 
 ### 4.3 Display and limits (advanced section)
 
@@ -250,8 +270,11 @@ Pehle haath se rakha layout agar kahin aur se aaya ho to wo (y, x) order mein pa
 **Save:** "Save layout" ya "Save & view". Save **ek hi PATCH** hai jo grid columns, filters aur widgets ek transaction mein likhta hai.
 Is wajah se aadha-save nahi hota. Unsaved changes par "Unsaved changes" dikhta hai aur page chhodte waqt browser warn karta hai.
 
-**Preview:** builder ke neeche "Preview" panel asli viewer ko embed karta hai. Ye **saved** version dikhata hai
-(unsaved changes nahi), aur save ke baad reload hota hai. "Reload preview" se haath se bhi refresh kar sakte ho.
+**Preview:** builder ke neeche "Preview" panel asli viewer ko embed karta hai aur ab **unsaved changes bhi dikhata hai**.
+Jo screen par hai (naye widgets, order, filters, bindings, grid columns) wo `POST /report-dashboards/preview` se chalta hai;
+kuch save nahi hota. Changes ke baad **Reload preview** dabao (save ke baad apne aap reload hota hai).
+Agar draft mein galti hai (jaise bad key) to preview "Fix these in the builder first" bata deta hai.
+Source-based filter ke options naye (unsaved) filter ke liye nahi aate; pehle save karo.
 
 ### 5.4 Dashboard list ke actions
 
@@ -276,7 +299,11 @@ Link: `report-dashboards.php?_d=<code>`
 
 - Viewer mein **Pin to home** dabao, ya `dashboard.php` par chooser se dashboard chuno.
 - Home par ek card dikhta hai jisme wo dashboard chal raha hota hai, aur **Open / Change / Unpin** buttons hote hain.
-- Pin **sirf us browser mein** yaad rehta hai (localStorage). Dusre browser/device par alag se pin karna padega.
+- Pin ab **server par** save hota hai (tumhare account ke saath), isliye kisi bhi browser/device par wahi dashboard dikhta hai.
+- **Sabke liye pin:** jinke paas `report-dashboards:edit` hai unhe viewer mein **Pin for everyone** button aur home chooser mein
+  "Pin for everyone" checkbox milta hai. Ye un sab ka default hai jinhone apna pin nahi lagaya. Apna pin hamesha jeetta hai.
+  Global pin sirf editor hata sakta hai; baaki log apna pin laga sakte hain.
+- Purane backend par (pin API nahi) ye apne aap localStorage par aa jaata hai (sirf us browser mein).
 - Agar dashboard mein required filter ka default nahi hai to card bolta hai "needs a filter value", aur Open se poora dashboard khulta hai.
 - Jis user ke paas dashboards ka `view` nahi, use card dikhta hi nahi.
 
@@ -382,7 +409,7 @@ Isme loading, error, empty aur forbidden states handle hain, aur theme change pa
 |---|---|
 | `report-sources` | `POST /test`, CRUD, `PATCH /:id/status`, `GET\|PUT /:id/params`, `GET\|PUT /:id/fields`, `POST /:id/test`, `GET /:id/runs`, `DELETE /:id/cache` |
 | `report-widgets` | `GET /meta`, `POST /preview`, CRUD, `PATCH /:id/status`, `PUT /:id/fields`, `GET /:ref/data` |
-| `report-dashboards` | CRUD, `PATCH /:id/status`, `PUT /:id/filters`, `PUT /:id/layout`, `GET /:ref/data`, `GET /:ref/filters/:key/options` |
+| `report-dashboards` | CRUD, `PATCH /:id/status`, `PUT /:id/filters`, `PUT /:id/layout`, `GET /:ref/data`, `GET /:ref/filters/:key/options`, **`POST /preview`** (unsaved draft, `edit` chahiye), **`GET\|PUT\|DELETE /pin`** (`scope=user\|global`, global ke liye `edit`) |
 | `auth` | `GET /auth/my-permissions` (naya, step 7 patch) |
 
 `:ref` numeric id ya code dono ho sakta hai. `PATCH /report-dashboards/:id` mein `filters[]` aur `widgets[]` bhi bheje ja sakte hain; builder yahi karta hai.
@@ -401,18 +428,21 @@ Isme loading, error, empty aur forbidden states handle hain, aur theme change pa
   "dataLabels": true,
   "height": 320,
   "sliceColors": { "North": "#1a9c6b" },
-  "palette": ["#e5484d", "#7c3aed"]
+  "palette": ["#e5484d", "#7c3aed"],
+  "gaugeMin": 0,
+  "gaugeMax": 1000000,
+  "gaugeBands": [{ "to": 300000, "color": "#e5484d" }, { "to": 1000000, "color": "#1a9c6b" }]
 }
 ```
 
-Sab optional hain. Chart type par lagu na hone wale options save ke waqt hata diye jaate hain.
+Sab optional hain. `gauge*` sirf gauge par chalte hain. Chart type par lagu na hone wale options save ke waqt hata diye jaate hain.
 
 ---
 
 ## 11. Testing: kya check ho chuka hai
 
-Mock API ke saath real Chromium mein: **48 (builder) + 66 (RBAC, chart options, pinned, preview, mobile) + 16 (drag reorder, read-only)** checks pass hue, console JS errors zero.
-Mock mein `apis` ki asli `dashboards.validation.js` lagi thi, to builder ka payload asli rules se check hua.
+Mock API ke saath real Chromium mein: **48 (builder) + 66 (RBAC, chart options, pinned, preview, mobile) + 16 (drag reorder, read-only) + 27 (scatter/gauge) + 12 (draft preview) + 19 (server pin, global pin, fallback)** checks pass hue. Backend unit tests: **63/63**, console JS errors zero.
+Mock mein `apis` ki asli `dashboards.validation.js`, `widgets.validation.js` aur `transform.js` (chart engine) lagi thi, to builder ka payload asli rules se check hua.
 
 **Aapko apne real stack par karna hai** (ye mock se nahi ho sakta):
 
@@ -422,6 +452,9 @@ Mock mein `apis` ki asli `dashboards.validation.js` lagi thi, to builder ka payl
 - [ ] View-only user se login karke buttons ka chhupna (`my-permissions` deploy ke baad).
 - [ ] Mobile width aur dark theme par ek nazar.
 - [ ] `GET /auth/my-permissions` DB ke saath (ye sirf syntax check hua hai).
+- [ ] `report_dashboard_pins` migration chalane ke baad `GET/PUT/DELETE /report-dashboards/pin` (SQL asli MySQL par nahi chala; sirf logic unit-test hua).
+- [ ] `POST /report-dashboards/preview` asli DB ke saath (validation aur resolve logic test hua, DB queries nahi).
+- [ ] Gauge/scatter asli data par: scatter mein 5000+ rows aur gauge ke bands.
 
 ---
 
@@ -429,9 +462,9 @@ Mock mein `apis` ki asli `dashboards.validation.js` lagi thi, to builder ka payl
 
 | Cheez | Wajah / kya chahiye |
 |---|---|
-| **Gauge, Scatter charts** | Backend schema mein hain par reject karta hai. Backend transform likhna hoga, phir UI mein enable karna. |
-| **Server-side pin (sabke liye / user-wise)** | Abhi pin localStorage mein hai. Server par chahiye to ek chhota table + 2 endpoints chahiye. |
-| **Builder preview mein unsaved changes** | Preview saved version dikhata hai. Draft preview ke liye backend mein draft-data endpoint chahiye. |
+| **Pin: har role ke liye alag default** | Abhi sirf ek global pin hai (sabke liye) aur user ka apna pin. Role-wise pin nahi. |
+| **Draft preview mein source-based filter options** | Naye unsaved filter ke options saved dashboard se aate hain, isliye pehle save karna padta hai. |
+| **Scatter 5000 points se zyada** | Cap hai (chart slow na ho). Zyada ho to filter lagao. |
 | **Free-form drag-drop grid** | Sirf order drag hota hai; positions auto-flow se nikalti hain. Ye jaan-boojh kar rakha gaya (kam risky). |
 | **Deleted source/dashboard ka code** | Reserved rehta hai, dobara use nahi hota. |
 | **Internal callbacks** | Gateway rate limit mein gine jaate hain. |
@@ -447,4 +480,5 @@ Mock mein `apis` ki asli `dashboards.validation.js` lagi thi, to builder ka payl
 | `ui_step6c_updated.zip` | Layout builder |
 | `ui_step7_final.zip` | RBAC hide, chart options, pinned card, embedded preview, README |
 | `apis_step7_my_permissions.zip` | `GET /auth/my-permissions` (ms_master) |
-| Is round ki zip | Drag-to-reorder, read-only editors, ye guide |
+| `ui_step8_final.zip` | Drag-to-reorder, read-only editors, ye guide |
+| Step 9 zips (`ui_step9_final.zip`, `apis_step9_reports.zip`) | Gauge + scatter, draft preview endpoint, server-side pin (+ migration SQL), updated guide |

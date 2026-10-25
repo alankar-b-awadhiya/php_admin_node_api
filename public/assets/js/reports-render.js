@@ -15,7 +15,7 @@
  *     { error: err }                                    -> error state; err.status 403 -> "forbidden" state
  *     { widget, data, meta, messages }                  -> exactly what GET /report-widgets/:ref/data
  *                                                          and POST /report-widgets/preview return in `data`
- *                                                          (data.kind = cartesian | pie | kpi | table)
+ *                                                          (data.kind = cartesian | pie | kpi | table | scatter | gauge)
  *     { empty: true, message?, hint? }                  -> empty state
  *
  *   opts     { title, subtitle   fallback header while loading / on error
@@ -35,6 +35,9 @@
  *     height      px        fixed chart height 120-1200 (a dashboard grid_h row count is the default)
  *     sliceColors { "North": "#1a9c6b" }   pie / donut: color by slice label
  *     palette     ["#1a9c6b", "#e5484d"]   pie / donut: colors in slice order (used where sliceColors has no entry)
+ *     gaugeMin, gaugeMax  numbers   gauge dial range (default 0..100; the server already clips the bands to it)
+ *     gaugeBands  [{ to, color }]   gauge: color of the band the value falls in (the server sends them ready as data.bands)
+ *     scatter also uses xTitle / yTitle (default: the field labels), yMin / yMax, legend and height
  *
  * Colors come from the theme panel's CSS variables (--primary, --secondary, --green, ...),
  * read on every render. Changing the theme re-renders every widget drawn so far.
@@ -236,6 +239,8 @@ const ReportsRender = (function () {
     if (d.kind === 'pie') return !d.items.length;
     if (d.kind === 'kpi') return d.value === null || d.value === undefined;
     if (d.kind === 'table') return !d.rows.length;
+    if (d.kind === 'scatter') return !d.series.length || d.series.every((s) => !s.points.length);
+    if (d.kind === 'gauge') return d.value === null || d.value === undefined;
     return false;
   }
 
@@ -413,6 +418,117 @@ const ReportsRender = (function () {
     });
   }
 
+  // ---- scatter ---------------------------------------------------------------------------
+  function drawScatter(el, body, p, opts, th) {
+    const d = p.data;
+    const wopts = (p.widget && p.widget.options) || {};
+    const xIsTime = d.xAxis && (d.xAxis.dataType === 'date' || d.xAxis.dataType === 'datetime');
+    const total = d.series.reduce((n, s) => n + s.points.length, 0);
+    const fmtX = (v) => (xIsTime ? formatValue(new Date(Number(v)).toISOString(), d.xAxis.format, d.xAxis.dataType) : formatValue(v, d.xAxis.format || 'compact', d.xAxis.dataType));
+    const fmtY = (v) => formatValue(v, d.yAxis.format || 'compact', d.yAxis.dataType);
+    const notes = [];
+    if (d.skippedRows) notes.push(`${d.skippedRows} row${d.skippedRows === 1 ? ' was' : 's were'} left out (the x or y value is not a number).`);
+    if (d.droppedPoints) notes.push(`${d.droppedPoints} point${d.droppedPoints === 1 ? ' was' : 's were'} left out (limit reached).`);
+    if (notes.length) {
+      const note = document.createElement('div');
+      note.className = 'rpt-hint';
+      note.textContent = notes.join(' ');
+      body.appendChild(note);
+    }
+    const canvas = mountCanvas(body, { ...opts, height: opts.height || optHeight(wopts) });
+    const yMin = optNum(wopts.yMin);
+    const yMax = optNum(wopts.yMax);
+    const title = (text) => (text ? { display: true, text: String(text).slice(0, 80), color: th.muted, font: { size: 12, weight: '600' } } : { display: false });
+    const showLegend = wopts.legend ? wopts.legend !== 'none' : d.series.length > 1;
+    const legendPos = wopts.legend && wopts.legend !== 'none' ? wopts.legend : 'top';
+    el._rpt.chart = new Chart(canvas, {
+      type: 'scatter',
+      data: {
+        datasets: d.series.map((s, i) => {
+          const color = s.color || colorAt(th, i);
+          return { label: s.name, data: s.points, backgroundColor: withAlpha(color, 0.7), borderColor: color, pointRadius: total > 300 ? 3 : 5, pointHoverRadius: 7 };
+        }),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: opts.animate === false ? false : { duration: 350 },
+        scales: {
+          x: { type: 'linear', grid: { color: th.line }, ticks: { color: th.muted, callback: fmtX, maxTicksLimit: 8 }, border: { color: th.line }, title: title(wopts.xTitle || d.xAxis.label) },
+          y: {
+            beginAtZero: false, grid: { color: th.line }, ticks: { color: th.muted, callback: fmtY }, border: { display: false }, title: title(wopts.yTitle || d.yAxis.label),
+            ...(yMin !== undefined ? { min: yMin } : {}), ...(yMax !== undefined ? { max: yMax } : {}),
+          },
+        },
+        plugins: {
+          legend: legendCfg(legendPos, th, showLegend),
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const r = ctx.raw || {};
+                const text = `${fmtX(r.x)}, ${fmtY(r.y)}`;
+                return r.label ? ` ${r.label} (${text})` : ` ${ctx.dataset.label}: ${text}`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- gauge -----------------------------------------------------------------------------
+  function drawGauge(el, body, p, opts, th) {
+    const d = p.data;
+    const wopts = (p.widget && p.widget.options) || {};
+    const span = d.max - d.min || 1;
+    const value = Number(d.value);
+    const pct = Math.max(0, Math.min(1, (value - d.min) / span));
+    const band = (d.bands || []).find((b) => value <= b.to) || (value > d.max && d.bands && d.bands.length ? d.bands[d.bands.length - 1] : null);
+    const fill = safeColor(band && band.color) || th.palette[0];
+    const canvas = mountCanvas(body, { ...opts, height: opts.height || optHeight(wopts) });
+    const plugin = {
+      id: 'rptGaugeText',
+      afterDatasetsDraw(chart) {
+        const arc = chart.getDatasetMeta(0).data[0];
+        if (!arc) return;
+        const { x, y, innerRadius: ir, outerRadius: or } = arc.getProps(['x', 'y', 'innerRadius', 'outerRadius'], true);
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = th.text;
+        ctx.textBaseline = 'alphabetic';
+        const big = Math.max(18, Math.min(44, ir * 0.5));
+        ctx.font = `700 ${big}px system-ui, -apple-system, Segoe UI, sans-serif`;
+        ctx.fillText(formatValue(d.value, d.format, d.dataType), x, y - ir * 0.22);
+        ctx.fillStyle = th.muted;
+        ctx.font = '500 12px system-ui, -apple-system, Segoe UI, sans-serif';
+        ctx.fillText(String(d.label || ''), x, y - ir * 0.22 - big - 6);
+        ctx.font = '500 11px system-ui, -apple-system, Segoe UI, sans-serif';
+        ctx.textBaseline = 'top';
+        const mid = (or + ir) / 2;
+        ctx.fillText(formatValue(d.min, 'compact', d.dataType), x - mid, y + 5);
+        ctx.fillText(formatValue(d.max, 'compact', d.dataType), x + mid, y + 5);
+        ctx.restore();
+      },
+    };
+    el._rpt.chart = new Chart(canvas, {
+      type: 'doughnut',
+      plugins: [plugin],
+      data: { labels: ['value', 'rest'], datasets: [{ data: [pct * span, (1 - pct) * span], backgroundColor: [fill, th.line], borderWidth: 0, borderRadius: 0 }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        rotation: -90,
+        circumference: 180,
+        cutout: '72%',
+        layout: { padding: { bottom: 22, top: 6 } },
+        animation: opts.animate === false ? false : { duration: 350 },
+        events: [],
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      },
+    });
+  }
+
   function drawKpi(body, p) {
     const d = p.data;
     body.innerHTML = `<div class="rpt-kpi"><div class="rpt-kpi-value">${esc(formatValue(d.value, d.format, d.dataType))}</div><div class="rpt-kpi-label">${esc(d.label || '')}</div></div>`;
@@ -462,7 +578,7 @@ const ReportsRender = (function () {
       return;
     }
     const kind = payload.data.kind;
-    if ((kind === 'cartesian' || kind === 'pie') && !window.Chart) {
+    if ((kind === 'cartesian' || kind === 'pie' || kind === 'scatter' || kind === 'gauge') && !window.Chart) {
       stateInto(body, 'error', 'The chart library did not load.', 'Reload the page; if it persists, check assets/vendor/chart.umd.js.');
       return;
     }
@@ -471,6 +587,8 @@ const ReportsRender = (function () {
     try {
       if (kind === 'cartesian') drawCartesian(el, body, payload, opts, th);
       else if (kind === 'pie') drawPie(el, body, payload, opts, th);
+      else if (kind === 'scatter') drawScatter(el, body, payload, opts, th);
+      else if (kind === 'gauge') drawGauge(el, body, payload, opts, th);
       else if (kind === 'kpi') drawKpi(body, payload);
       else if (kind === 'table') drawTable(body, payload);
       else stateInto(body, 'error', `Unknown chart data (${kind || 'none'}).`);

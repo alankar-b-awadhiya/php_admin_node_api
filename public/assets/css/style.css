@@ -1057,7 +1057,7 @@ input[type="file"] { width: 100%; padding: 8px 10px; border: 1px solid var(--lin
 .rpt-slot-btns .btn { padding: 4px 7px; }
 .rpt-slot-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; padding: 10px 12px 2px; background: var(--porcelain); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .rpt-slot-extra .form-group { margin-bottom: 8px; }
-.rpt-slot-extra[hidden], #wb-legendG[hidden], #wb-flagsG[hidden], .rpt-check[hidden] { display: none !important; }
+.rpt-slot-extra[hidden], #wb-legendG[hidden], #wb-flagsG[hidden], .rpt-check[hidden], #wb-axisG[hidden], #wb-rangeG[hidden], #wb-gaugeG[hidden], #wb-sliceG[hidden] { display: none !important; }
 .rpt-pform { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
 .rpt-pform .form-group { margin-bottom: 4px; }
 
