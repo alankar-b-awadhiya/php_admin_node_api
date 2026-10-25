@@ -520,7 +520,17 @@ const Reports = (function () {
       ['create', 'edit', 'delete'].forEach((a) => root.classList.toggle(`rpt-no-${a}`, !can(resource, a)));
       return { create: can(resource, 'create'), edit: can(resource, 'edit'), delete: can(resource, 'delete') };
     }
-    return { load, can, apply };
+    /**
+     * lockInside(el): disables every input / select / textarea inside `el`, now and whenever the editor re-renders
+     * (the params / fields editors rebuild their markup). Used for view-only users, so they can read but not type.
+     */
+    function lockInside(el) {
+      if (!el) return;
+      const lock = () => el.querySelectorAll('input, select, textarea').forEach((n) => { if (!n.disabled) n.disabled = true; });
+      lock();
+      new MutationObserver(lock).observe(el, { childList: true, subtree: true });
+    }
+    return { load, can, apply, lockInside };
   })();
 
   // ---- Pinned dashboard (per user, per browser) ---------------------------------------

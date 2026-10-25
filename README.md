@@ -139,8 +139,8 @@ Chart colors come from the theme panel's CSS variables and redraw when the theme
   failing widget only turns its own frame into an error state. Filter values live in the URL, so links can be shared.
   Cascading filters clear their children and re-fetch their options. "Refresh data" sends `?refresh=1` (cache bypass);
   auto-refresh does not, and pauses while the tab is hidden.
-- **Builder** — `report-dashboards.php?_d=<code>&edit=1` (list → Layout, or viewer → Edit layout). No drag-drop: each
-  placement has width, height and an order; `grid_x` / `grid_y` are derived by auto-flow (fill left to right, wrap to a
+- **Builder** — `report-dashboards.php?_d=<code>&edit=1` (list → Layout, or viewer → Edit layout). Each placement has
+  width, height and an order (drag the ⋮⋮ handle or use the arrow buttons; no free-form drag-drop); `grid_x` / `grid_y` are derived by auto-flow (fill left to right, wrap to a
   new row). Filters (key, label, type, default, required, parent, fixed options or an options source) and per-widget
   param bindings (`@filter_key` or a fixed value) are edited here. Save is **one** `PATCH /report-dashboards/:id`
   carrying `grid_columns`, `filters[]` and `widgets[]`, which the API writes in a single transaction. A **Preview**
@@ -169,7 +169,10 @@ Stored in the widget's free-form `options` JSON (no API change). Set them in the
 The API enforces `requirePermission('report-sources' | 'report-widgets' | 'report-dashboards', view|create|edit|delete)`
 on every route. The UI only **hides** buttons the user could not use, through `Reports.access.apply(resource)`, which sets
 `rpt-no-create` / `rpt-no-edit` / `rpt-no-delete` on `<html>`; `style.css` hides the matching actions
-(New, Edit, Layout, on/off, Test, Save params/fields, Clear cache, Delete).
+(New, Edit, Layout, on/off, Test, Save params/fields, Clear cache, Delete). The source detail's params / fields inputs are
+disabled for users without `edit`.
+
+A step-by-step user guide lives in `REPORTS_GUIDE.md`.
 
 - `SUPERADMIN` sees everything (the API bypasses grants for it too).
 - Other users: the grants come from **`GET /auth/my-permissions`** (added to `ms_master`, see the backend patch). The

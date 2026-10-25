@@ -17,7 +17,7 @@
  *   bindings against the NEW filter list. Three calls could leave a half-saved dashboard.
  *
  * Layout rules:
- *   - No drag-drop. Each placement has width (grid_w), height (grid_h) and a position in the list.
+ *   - Reorder by dragging the ⋮⋮ handle or with the arrow buttons. Each placement has width (grid_w), height (grid_h) and a position in the list.
  *   - grid_x / grid_y are derived (auto-flow): fill left to right, start a new row when the next widget does not fit.
  *     The row is as tall as its tallest widget. So x + w > columns can never be sent.
  *   - A dashboard that was laid out by hand elsewhere is read in (y, x) order and re-flowed on the next save.
@@ -263,6 +263,7 @@ const ReportsDashBuilder = (function () {
             <select data-f="type">${R.optionsHtml(FILTER_TYPES, f.type)}</select></div>
           <div class="form-group"><label>Order</label>
             <div class="rpt-slot-btns" style="margin:0;">
+              <span class="rpt-drag" draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
               <button type="button" class="btn btn-ghost btn-sm" data-fact="up" title="Move up"${i === 0 ? ' disabled' : ''}>&uarr;</button>
               <button type="button" class="btn btn-ghost btn-sm" data-fact="down" title="Move down"${i === B.filters.length - 1 ? ' disabled' : ''}>&darr;</button>
             </div></div>
@@ -466,6 +467,7 @@ const ReportsDashBuilder = (function () {
             <input type="number" data-p="h" min="1" max="40" value="${p.h}"></div>
           <div class="form-group"><label>Order</label>
             <div class="rpt-slot-btns" style="margin:0;">
+              <span class="rpt-drag" draggable="true" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
               <button type="button" class="btn btn-ghost btn-sm" data-pact="up" title="Move earlier"${i === 0 ? ' disabled' : ''}>&uarr;</button>
               <button type="button" class="btn btn-ghost btn-sm" data-pact="down" title="Move later"${i === B.places.length - 1 ? ' disabled' : ''}>&darr;</button>
             </div></div>
@@ -539,6 +541,53 @@ const ReportsDashBuilder = (function () {
       markDirty();
       paintWidgets();
     });
+    // ---- drag to reorder (the arrow buttons stay for keyboard use) -----------------------------------
+    function enableDrag(box, attr, getList, onChange) {
+      let dragUid = null;
+      const clear = () => { box.querySelectorAll('.is-dragging, .drop-before, .drop-after').forEach((c) => c.classList.remove('is-dragging', 'drop-before', 'drop-after')); };
+      box.addEventListener('dragstart', (e) => {
+        const h = e.target.closest && e.target.closest('.rpt-drag');
+        if (!h) return;
+        const card = h.closest(`[${attr}]`);
+        dragUid = card.getAttribute(attr);
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', dragUid); e.dataTransfer.setDragImage(card, 24, 24); } catch (err) { /* ignore */ }
+        card.classList.add('is-dragging');
+      });
+      box.addEventListener('dragover', (e) => {
+        if (!dragUid) return;
+        e.preventDefault();
+        box.querySelectorAll('.drop-before, .drop-after').forEach((c) => c.classList.remove('drop-before', 'drop-after'));
+        const card = e.target.closest(`[${attr}]`);
+        if (card && card.getAttribute(attr) !== dragUid) {
+          const r = card.getBoundingClientRect();
+          card.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+        }
+      });
+      box.addEventListener('drop', (e) => {
+        if (!dragUid) return;
+        e.preventDefault();
+        const card = e.target.closest(`[${attr}]`);
+        const list = getList();
+        const from = list.findIndex((x) => x.uid === dragUid);
+        if (card && from > -1 && card.getAttribute(attr) !== dragUid) {
+          const toUid = card.getAttribute(attr);
+          const r = card.getBoundingClientRect();
+          const after = e.clientY >= r.top + r.height / 2;
+          const [item] = list.splice(from, 1);
+          const to = list.findIndex((x) => x.uid === toUid);
+          list.splice(after ? to + 1 : to, 0, item);
+          dragUid = null; clear();
+          onChange();
+          return;
+        }
+        dragUid = null; clear();
+      });
+      box.addEventListener('dragend', () => { dragUid = null; clear(); });
+    }
+    enableDrag($('dbWidgets'), 'data-puid', () => B.places, () => { markDirty(); paintWidgets(); });
+    enableDrag($('dbFilters'), 'data-fuid', () => B.filters, () => { markDirty(); paintFilters(); paintBindingsAll(); });
+
     $('dbAddWidget').addEventListener('click', () => {
       const id = Number($('dbPick').value);
       const w = B.catalog.get(id);

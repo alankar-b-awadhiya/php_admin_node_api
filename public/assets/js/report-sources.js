@@ -765,6 +765,8 @@
     const root = $('modalBackdrop');
     root.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener('click', Admin.closeModal));
     const panel = (name) => root.querySelector(`[data-panel="${name}"]`);
+    // View-only users can read the field catalogue and params but not type into them (Save is hidden by CSS as well).
+    if (!Reports.access.can('report-sources', 'edit')) { Reports.access.lockInside(panel('fields')); Reports.access.lockInside(panel('params')); }
 
     const dirtyDot = (id, on) => { $(id).innerHTML = on ? ' <span title="Unsaved changes" style="color:var(--coral);">\u25cf</span>' : ''; };
     const built = { runs: false };
