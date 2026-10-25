@@ -22,6 +22,7 @@
  *     The row is as tall as its tallest widget. So x + w > columns can never be sent.
  *   - A dashboard that was laid out by hand elsewhere is read in (y, x) order and re-flowed on the next save.
  *
+ * Preview: an <iframe> of the real viewer (?embed=1: no sidebar / top bar) shows the SAVED dashboard; it reloads after a save.
  * Param bindings: per placement, per source param -> "Not set" | filter (sent as "@filter_key") | fixed value.
  * Renaming a filter key rewrites the "@old" bindings and parent references that point at it.
  * Saved credentials / secrets never pass through here.
@@ -202,7 +203,29 @@ const ReportsDashBuilder = (function () {
           </div>
           <div id="dbWidgets" class="rpt-params-list" style="margin-top:14px;"></div>
         </div>
-      </div>`;
+      </div>
+
+      <details class="card" id="dbPreview" style="margin-top:18px;">
+        <summary class="card-header" style="cursor:pointer;list-style:none;">
+          <div class="card-header-lead"><h3>Preview</h3></div>
+          <span class="rpt-hint" style="margin:0;" id="dbPreviewNote">The saved version, in the real viewer</span>
+        </summary>
+        <div class="card-body">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="dbPreviewReload">Reload preview</button>
+            <span class="rpt-hint" style="margin:0;">Unsaved changes do not show here — save first.</span>
+          </div>
+          <iframe id="dbPreviewFrame" class="rpt-preview-frame" title="Dashboard preview"></iframe>
+        </div>
+      </details>`;
+
+    // ---- preview (the real viewer, embedded; shows the SAVED version) ---------------------
+    const prevEl = $('dbPreview');
+    const prevFrame = $('dbPreviewFrame');
+    const prevSrc = `report-dashboards.php${Admin.qs({ _d: code, embed: 1 })}`;
+    const loadPreview = () => { prevFrame.src = 'about:blank'; setTimeout(() => { prevFrame.src = prevSrc; }, 30); };
+    prevEl.addEventListener('toggle', () => { if (prevEl.open && !prevFrame.getAttribute('src')) prevFrame.src = prevSrc; });
+    $('dbPreviewReload').addEventListener('click', (e) => { e.preventDefault(); loadPreview(); });
 
     // ---- layout map ----------------------------------------------------------------
     function paintMap() {
@@ -642,6 +665,7 @@ const ReportsDashBuilder = (function () {
         paintFilters(); paintWidgets();
         $('dbDirty').hidden = true;
         btns.forEach((b) => { b.disabled = true; });
+        if (prevEl.open) loadPreview();
       } catch (err) {
         box.innerHTML = R.formErrorsHtml(err);
         box.scrollIntoView({ block: 'start', behavior: 'smooth' });

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../app/config/config.php';
 $pageTitle = 'Dashboard';
 $activeNav = 'dashboard';
+$pageScriptsBefore = ['vendor/chart.umd.js', 'js/reports-common.js', 'js/reports-render.js', 'js/dashboard-pinned.js'];
 $pageScript = 'dashboard.js';
 include __DIR__ . '/../app/includes/header.php';
 ?>
@@ -17,6 +18,14 @@ include __DIR__ . '/../app/includes/header.php';
   <div class="stat-card"><span class="stat-label">Role</span><div class="stat-value skeleton-bar">&nbsp;</div></div>
   <div class="stat-card"><span class="stat-label">Last login</span><div class="stat-value skeleton-bar">&nbsp;</div></div>
   <div class="stat-card"><span class="stat-label">Login method</span><div class="stat-value skeleton-bar">&nbsp;</div></div>
+</div>
+
+<div class="card" id="pinnedCard" hidden style="margin-bottom:18px;">
+  <div class="card-header">
+    <div class="card-header-lead"><h3 id="pinnedTitle">Pinned dashboard</h3></div>
+    <div class="toolbar" id="pinnedActions"></div>
+  </div>
+  <div class="card-body" id="pinnedBody"></div>
 </div>
 
 <div class="card">

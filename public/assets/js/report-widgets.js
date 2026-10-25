@@ -43,6 +43,12 @@
   const NUMERIC_TYPES = ['number', 'currency', 'percent'];
   const isNumericType = (t) => NUMERIC_TYPES.includes(t);
   const CARTESIAN = ['line', 'area', 'bar', 'stacked_bar'];
+  const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+  /** { sliceColors:{North:'#..'}, palette:['#..'] } -> "North|#..\n#.." */
+  function sliceColorsToText(o) {
+    const lines = Object.entries((o && o.sliceColors) || {}).map(([k, v]) => `${k}|${v}`);
+    return lines.concat(Array.isArray(o && o.palette) ? o.palette : []).join('\n');
+  }
   const ANCHORS = ['x', 'label', 'value']; // a sort field must be one of these
 
   // Same rules as ms_reports utils/transform.js CHART_RULES. Only used if GET meta fails;
@@ -386,6 +392,31 @@
                   <label class="rpt-check" id="wb-smoothL"><input type="checkbox" id="wb-smooth"> Smooth curves</label>
                   <label class="rpt-check" id="wb-horizL"><input type="checkbox" id="wb-horiz"> Horizontal bars</label></div>
               </div>
+              <div id="wb-chartG">
+                <div class="rpt-section-title" style="margin-top:4px;">Chart options</div>
+                <div class="form-row" id="wb-axisG">
+                  <div class="form-group"><label for="wb-xtitle">Category axis title</label>
+                    <input type="text" id="wb-xtitle" maxlength="60" placeholder="none" value="${esc(S.opts.xTitle || '')}"></div>
+                  <div class="form-group"><label for="wb-ytitle">Value axis title</label>
+                    <input type="text" id="wb-ytitle" maxlength="60" placeholder="none" value="${esc(S.opts.yTitle || '')}"></div>
+                </div>
+                <div class="form-row" id="wb-rangeG">
+                  <div class="form-group"><label for="wb-ymin">Value axis minimum</label>
+                    <input type="number" id="wb-ymin" step="any" placeholder="automatic (starts at 0)" value="${esc(S.opts.yMin ?? '')}"></div>
+                  <div class="form-group"><label for="wb-ymax">Value axis maximum</label>
+                    <input type="number" id="wb-ymax" step="any" placeholder="automatic" value="${esc(S.opts.yMax ?? '')}"></div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group"><label for="wb-height">Fixed height (px)</label>
+                    <input type="number" id="wb-height" min="120" max="1200" placeholder="fill the grid cell" value="${esc(S.opts.height ?? '')}">
+                    <div class="rpt-hint">120–1200. Blank = the chart fills its grid cell.</div></div>
+                  <div class="form-group" id="wb-labelsG"><label>Labels</label>
+                    <label class="rpt-check"><input type="checkbox" id="wb-dlabels" ${S.opts.dataLabels ? 'checked' : ''}> Show values on the chart</label></div>
+                </div>
+                <div class="form-group" id="wb-sliceG"><label for="wb-slices">Slice colors</label>
+                  <textarea id="wb-slices" rows="3" class="rpt-mono" placeholder="North|#1a9c6b&#10;South|#e5484d&#10;#7c3aed">${esc(sliceColorsToText(S.opts))}</textarea>
+                  <div class="rpt-hint">One per line: <span class="rpt-code">Label|#hex</span> colors that slice; a bare <span class="rpt-code">#hex</span> line colors slices in order. Others keep the theme colors.</div></div>
+              </div>
               <div class="form-group"><label for="wb-perm">Extra permission resource</label>
                 <input type="text" id="wb-perm" class="rpt-mono" maxlength="80" placeholder="optional, e.g. clientele" value="${esc(S.permRes)}">
                 <div class="rpt-hint">If set, a viewer also needs “view” on this RBAC resource to see the widget.</div></div>
@@ -500,6 +531,11 @@
       ], S.opts.legend || '');
       $('wb-smooth').checked = !!S.opts.smooth;
       $('wb-horiz').checked = !!S.opts.horizontal;
+      const cart = CARTESIAN.includes(t);
+      $('wb-chartG').hidden = !(cart || pie);
+      $('wb-axisG').hidden = !cart;
+      $('wb-rangeG').hidden = !cart;
+      $('wb-sliceG').hidden = !pie;
     }
 
     // ---- slots ----------------------------------------------------------------------
@@ -610,6 +646,13 @@
       }
       const lim = S.rowLimit.trim();
       if (lim && !(Number.isInteger(Number(lim)) && Number(lim) >= 1 && Number(lim) <= 10000)) errors.push('Row limit must be a whole number from 1 to 10000.');
+      if (CARTESIAN.includes(S.chartType)) {
+        const lo = numOrNull(S.opts.yMin); const hi = numOrNull(S.opts.yMax);
+        if (lo !== null && hi !== null && lo >= hi) errors.push('Value axis minimum must be lower than the maximum.');
+      }
+      const hgt = numOrNull(S.opts.height);
+      if (String(S.opts.height ?? '').trim() !== '' && (hgt === null || hgt < 120 || hgt > 1200)) errors.push('Fixed height must be a number from 120 to 1200.');
+      if (S.chartType === 'pie' || S.chartType === 'donut') errors.push(...parseSliceColors(S.sliceText !== undefined ? S.sliceText : sliceColorsToText(S.opts)).errors);
       const ref = S.refreshSec.trim();
       if (full && ref && !(Number.isInteger(Number(ref)) && Number(ref) >= 5 && Number(ref) <= 86400)) errors.push('Auto-refresh must be a whole number from 5 to 86400.');
       if (!S.fieldsLoaded || !supported(S.chartType)) return errors;
@@ -659,11 +702,35 @@
       return out;
     }
 
+    /** "North|#1a9c6b\n#7c3aed" -> { sliceColors, palette, errors } */
+    function parseSliceColors(text) {
+      const sliceColors = {}; const palette = []; const errors = [];
+      String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).forEach((line, i) => {
+        const cut = line.lastIndexOf('|');
+        const label = cut === -1 ? '' : line.slice(0, cut).trim();
+        const hex = (cut === -1 ? line : line.slice(cut + 1)).trim();
+        if (!HEX_RE.test(hex)) { errors.push(`Slice colors, line ${i + 1}: “${hex}” is not a hex color like #1a9c6b.`); return; }
+        if (label) sliceColors[label] = hex; else palette.push(hex);
+      });
+      return { sliceColors, palette, errors };
+    }
+    const numOrNull = (v) => { const t = String(v === undefined || v === null ? '' : v).trim(); return t !== '' && isFinite(Number(t)) ? Number(t) : null; };
+
     function cleanOptions() {
       const o = { ...S.opts };
-      ['legend', 'smooth', 'horizontal'].forEach((k) => { if (!o[k]) delete o[k]; });
+      const cart = CARTESIAN.includes(S.chartType);
+      const pie = S.chartType === 'pie' || S.chartType === 'donut';
+      ['legend', 'smooth', 'horizontal', 'dataLabels', 'xTitle', 'yTitle'].forEach((k) => { if (!o[k]) delete o[k]; });
+      ['yMin', 'yMax', 'height'].forEach((k) => { const n = numOrNull(o[k]); if (n === null) delete o[k]; else o[k] = n; });
       if (!(S.chartType === 'bar' || S.chartType === 'stacked_bar')) delete o.horizontal;
       if (!(S.chartType === 'line' || S.chartType === 'area' || S.chartType === 'bar')) delete o.smooth;
+      if (!cart) { ['xTitle', 'yTitle', 'yMin', 'yMax'].forEach((k) => delete o[k]); }
+      if (!(cart || pie)) { delete o.dataLabels; delete o.height; }
+      if (pie) {
+        const sc = parseSliceColors(S.sliceText !== undefined ? S.sliceText : sliceColorsToText(o));
+        if (Object.keys(sc.sliceColors).length) o.sliceColors = sc.sliceColors; else delete o.sliceColors;
+        if (sc.palette.length) o.palette = sc.palette; else delete o.palette;
+      } else { delete o.sliceColors; delete o.palette; }
       return Object.keys(o).length ? o : null;
     }
 
@@ -681,7 +748,7 @@
     }
 
     // ---- preview ----------------------------------------------------------------------------
-    const previewOpts = () => ({ height: 300, animate: false, title: S.title, subtitle: S.subtitle });
+    const previewOpts = () => ({ height: (numOrNull(S.opts.height) >= 120 && numOrNull(S.opts.height) <= 1200 ? numOrNull(S.opts.height) : 300), animate: false, title: S.title, subtitle: S.subtitle });
 
     function schedulePreview(delay = 700) {
       clearTimeout(timer);
@@ -793,6 +860,13 @@
     $('wb-legend').addEventListener('change', (e) => { S.opts.legend = e.target.value; schedulePreview(200); });
     $('wb-smooth').addEventListener('change', (e) => { S.opts.smooth = e.target.checked; schedulePreview(200); });
     $('wb-horiz').addEventListener('change', (e) => { S.opts.horizontal = e.target.checked; schedulePreview(200); });
+    $('wb-xtitle').addEventListener('input', (e) => { S.opts.xTitle = e.target.value; schedulePreview(500); });
+    $('wb-ytitle').addEventListener('input', (e) => { S.opts.yTitle = e.target.value; schedulePreview(500); });
+    $('wb-ymin').addEventListener('input', (e) => { S.opts.yMin = e.target.value; schedulePreview(500); });
+    $('wb-ymax').addEventListener('input', (e) => { S.opts.yMax = e.target.value; schedulePreview(500); });
+    $('wb-height').addEventListener('input', (e) => { S.opts.height = e.target.value; schedulePreview(500); });
+    $('wb-dlabels').addEventListener('change', (e) => { S.opts.dataLabels = e.target.checked; schedulePreview(200); });
+    $('wb-slices').addEventListener('input', (e) => { S.sliceText = e.target.value; schedulePreview(500); });
     $('wb-prevBtn').addEventListener('click', runPreview);
     $('wb-pparams').addEventListener('change', (e) => {
       if (e.target.closest('[data-pk]')) { S.paramValues = readParamValues($('wb-pparams'), S.params); schedulePreview(300); }
@@ -897,6 +971,7 @@
 
   async function init() {
     await Admin.requireAuth();
+    const acc = await Reports.access.apply('report-widgets');
     try { META = (await Admin.api.get(API.meta)).data || FALLBACK_META; } catch (e) { META = FALLBACK_META; }
     await loadSources();
 
@@ -906,7 +981,7 @@
       sources.map((s) => ({ value: String(s.id), label: s.name })), '', { blank: 'All' });
 
     const newBtn = document.getElementById('btnNewWidget');
-    newBtn.hidden = false;
+    newBtn.hidden = !acc.create;
     newBtn.addEventListener('click', () => openBuilder(null));
     document.getElementById('btnRefresh').addEventListener('click', () => loadList(true));
 

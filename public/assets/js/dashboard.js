@@ -22,4 +22,6 @@
     hintEl.textContent = v.hint;
     card.appendChild(hintEl);
   });
+
+  if (typeof ReportsPinned !== 'undefined') ReportsPinned.mount().catch(() => {}); // top-level const is not a window property
 })();

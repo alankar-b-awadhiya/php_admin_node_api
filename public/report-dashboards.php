@@ -6,6 +6,7 @@ $pageScriptsBefore = ['vendor/chart.umd.js', 'js/reports-common.js', 'js/reports
 $pageScript = 'report-dashboards.js';
 include __DIR__ . '/../app/includes/header.php';
 ?>
+<script>if (/[?&]embed=1(&|$)/.test(location.search)) document.documentElement.classList.add('rpt-embed');</script>
 
 <!-- ============================ LIST VIEW ============================ -->
 <div id="dashListView" hidden>
@@ -90,6 +91,7 @@ include __DIR__ . '/../app/includes/header.php';
     </div>
     <div class="toolbar">
       <span class="rpt-hint" id="dvUpdated" style="margin:0 6px 0 0;"></span>
+      <button class="btn btn-secondary" id="dvPin" type="button" hidden title="Show this dashboard on the home page (this browser only)">Pin to home</button>
       <a class="btn btn-secondary" id="dvEdit" href="#" hidden>
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         Edit layout

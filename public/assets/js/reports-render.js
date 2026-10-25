@@ -28,6 +28,13 @@
  *     legend      'top' | 'bottom' | 'right' | 'none'   (default: shown when more than one series / any pie)
  *     smooth      true    smooth line / area curves
  *     horizontal  true    bar / stacked_bar drawn sideways
+ *     xTitle      'Month'   title of the category axis            (cartesian; "x" = categories even for horizontal bars)
+ *     yTitle      'Revenue' title of the value axis               (cartesian)
+ *     yMin, yMax  numbers   bounds of the (left) value axis       (cartesian; yMin set => no forced zero)
+ *     dataLabels  true      print the value on bars / line points / pie slices
+ *     height      px        fixed chart height 120-1200 (a dashboard grid_h row count is the default)
+ *     sliceColors { "North": "#1a9c6b" }   pie / donut: color by slice label
+ *     palette     ["#1a9c6b", "#e5484d"]   pie / donut: colors in slice order (used where sliceColors has no entry)
  *
  * Colors come from the theme panel's CSS variables (--primary, --secondary, --green, ...),
  * read on every render. Changing the theme re-renders every widget drawn so far.
@@ -54,6 +61,61 @@ const ReportsRender = (function () {
   function colorAt(th, i) {
     if (i < th.palette.length) return th.palette[i];
     return `hsl(${Math.round((i * 137.508) % 360)}, 55%, 52%)`;
+  }
+
+  const optNum = (v) => (v === null || v === undefined || v === '' || !isFinite(Number(v)) ? undefined : Number(v));
+  const optHeight = (wopts) => { const h = optNum(wopts && wopts.height); return h && h >= 120 && h <= 1200 ? h : 0; };
+  const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+  const safeColor = (c) => (typeof c === 'string' && HEX_RE.test(c.trim()) ? c.trim() : null);
+
+  /** Chart.js has no built-in data labels; this tiny inline plugin prints values on bars, line points and slices. */
+  function labelsPlugin(th, { stacked = false, horizontal = false, fallbackFmt = 'compact' } = {}) {
+    return {
+      id: 'rptLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.font = '600 11px system-ui, -apple-system, Segoe UI, sans-serif';
+        const total = chart.data.datasets.reduce((n, ds) => n + (ds.data ? ds.data.length : 0), 0);
+        if (total > 60) { ctx.restore(); return; } // too dense to stay readable
+        chart.data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          if (meta.hidden) return;
+          meta.data.forEach((el, i) => {
+            const v = ds.data[i];
+            if (v === null || v === undefined || v === '') return;
+            const text = formatValue(v, ds._fmt || fallbackFmt, ds._dt);
+            if (meta.type === 'bar') {
+              const pr = el.getProps(['x', 'y', 'base'], true);
+              ctx.textBaseline = 'middle';
+              if (stacked) {
+                const size = horizontal ? Math.abs(pr.x - pr.base) : Math.abs(pr.base - pr.y);
+                if (size < 18) return;
+                ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+                ctx.fillText(text, horizontal ? (pr.x + pr.base) / 2 : pr.x, horizontal ? pr.y : (pr.y + pr.base) / 2);
+              } else if (horizontal) {
+                ctx.fillStyle = th.text; ctx.textAlign = 'left';
+                ctx.fillText(text, pr.x + 5, pr.y);
+              } else {
+                ctx.fillStyle = th.text; ctx.textAlign = 'center';
+                ctx.fillText(text, pr.x, pr.y - 9);
+              }
+            } else if (meta.type === 'line') {
+              const pr = el.getProps(['x', 'y'], true);
+              ctx.fillStyle = th.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+              ctx.fillText(text, pr.x, pr.y - 11);
+            } else if (meta.type === 'doughnut' || meta.type === 'pie') {
+              const pr = el.getProps(['startAngle', 'endAngle'], true);
+              if (pr.endAngle - pr.startAngle < 0.3) return; // slice too thin for a label
+              const c = el.getCenterPoint();
+              ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+              ctx.fillText(text, c.x, c.y);
+            }
+          });
+        });
+        ctx.restore();
+      },
+    };
   }
 
   function withAlpha(color, a) {
@@ -247,26 +309,35 @@ const ReportsRender = (function () {
 
     const axisFmt = (series) => (v) => formatValue(v, series && series.format ? series.format : 'compact', series && series.dataType);
     const grid = { color: th.line };
-    const valueAxis = (series, pos, showGrid) => ({
-      position: pos,
-      beginAtZero: true,
-      stacked,
-      grid: showGrid ? grid : { drawOnChartArea: false, color: th.line },
-      ticks: { color: th.muted, callback: axisFmt(series) },
-      border: { display: false },
-    });
-    const catAxis = { stacked, grid: { display: false }, ticks: { color: th.muted, autoSkip: true, maxRotation: 45 }, border: { color: th.line } };
+    const yMin = optNum(wopts.yMin);
+    const yMax = optNum(wopts.yMax);
+    const axisTitle = (text) => (text ? { display: true, text: String(text).slice(0, 80), color: th.muted, font: { size: 12, weight: '600' } } : { display: false });
+    const valueAxis = (series, pos, showGrid, primary) => {
+      const ax = {
+        position: pos,
+        beginAtZero: !(primary && yMin !== undefined),
+        stacked,
+        grid: showGrid ? grid : { drawOnChartArea: false, color: th.line },
+        ticks: { color: th.muted, callback: axisFmt(series) },
+        border: { display: false },
+        title: axisTitle(primary ? wopts.yTitle : ''),
+      };
+      if (primary && yMin !== undefined) ax.min = yMin;
+      if (primary && yMax !== undefined) ax.max = yMax;
+      return ax;
+    };
+    const catAxis = { stacked, grid: { display: false }, ticks: { color: th.muted, autoSkip: true, maxRotation: 45 }, border: { color: th.line }, title: axisTitle(wopts.xTitle) };
 
     // indexAxis 'y' (horizontal bars): the category scale is `y`, the value scale is `x`.
     const scales = horizontal
-      ? { y: { ...catAxis, position: 'left' }, x: valueAxis(leftSeries, 'bottom', true) }
-      : { x: catAxis, y: valueAxis(leftSeries, 'left', true) };
-    if (anyRight && !horizontal) scales.y1 = valueAxis(rightSeries, 'right', false);
+      ? { y: { ...catAxis, position: 'left' }, x: valueAxis(leftSeries, 'bottom', true, true) }
+      : { x: catAxis, y: valueAxis(leftSeries, 'left', true, true) };
+    if (anyRight && !horizontal) scales.y1 = valueAxis(rightSeries, 'right', false, false);
 
     const legendPos = wopts.legend && wopts.legend !== 'none' ? wopts.legend : 'top';
     const showLegend = wopts.legend ? wopts.legend !== 'none' : d.series.length > 1;
 
-    const canvas = mountCanvas(body, opts);
+    const canvas = mountCanvas(body, { ...opts, height: opts.height || optHeight(wopts) });
     if (d.droppedSeries) {
       const note = document.createElement('div');
       note.className = 'rpt-hint';
@@ -276,6 +347,7 @@ const ReportsRender = (function () {
     el._rpt.chart = new Chart(canvas, {
       type: anyBar ? 'bar' : 'line',
       data: { labels, datasets },
+      plugins: wopts.dataLabels ? [labelsPlugin(th, { stacked, horizontal })] : [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -302,14 +374,20 @@ const ReportsRender = (function () {
     const wide = (body.clientWidth || 480) > 420;
     const legendPos = wopts.legend && wopts.legend !== 'none' ? wopts.legend : (wide ? 'right' : 'bottom');
     const showLegend = wopts.legend ? wopts.legend !== 'none' : true;
-    const canvas = mountCanvas(body, opts);
+    const canvas = mountCanvas(body, { ...opts, height: opts.height || optHeight(wopts) });
+    const byLabel = wopts.sliceColors && typeof wopts.sliceColors === 'object' ? wopts.sliceColors : {};
+    const ordered = Array.isArray(wopts.palette) ? wopts.palette : [];
+    const sliceColor = (item, i) => safeColor(byLabel[item.label]) || safeColor(ordered[i]) || colorAt(th, i);
     el._rpt.chart = new Chart(canvas, {
       type: donut ? 'doughnut' : 'pie',
+      plugins: wopts.dataLabels ? [labelsPlugin(th, { fallbackFmt: d.valueFormat || 'compact' })] : [],
       data: {
         labels: d.items.map((i) => i.label),
         datasets: [{
           data: d.items.map((i) => i.value),
-          backgroundColor: d.items.map((_, i) => colorAt(th, i)),
+          _fmt: d.valueFormat,
+          _dt: d.dataType,
+          backgroundColor: d.items.map(sliceColor),
           borderColor: th.paper,
           borderWidth: 2,
         }],

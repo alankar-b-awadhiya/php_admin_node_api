@@ -116,4 +116,76 @@ none of this matters and cookies just work.
 - The "Role Grants" page (`rbac-grants.php`) now just redirects to the
   "Role Matrix" tab on `rbac-permissions.php`, kept around so old
   bookmarks/links don't 404.
+## Reports (API sources → widgets → dashboards)
+
+The **Reports** sidebar group has three pages. They talk to the `ms_reports` service through the gateway
+(`/api/v1/report-sources`, `/report-widgets`, `/report-dashboards`); every URL lives in one place:
+`assets/js/reports-common.js` → `Reports.API`.
+
+| Page | File | What it does |
+|---|---|---|
+| API Sources | `report-sources.php` + `js/report-sources.js` | Register an internal or external API (URL, method, auth, response path, params/headers JSON, cache). **Test API** previews rows and detects fields. The detail view holds the params editor, the field catalogue (type + dimension/measure role), cache clear and the run log. Saved credentials are never shown again — only "set". |
+| Widgets | `report-widgets.php` + `js/report-widgets.js` | Pick a source and a chart type (line, area, bar, stacked bar, pie, donut, KPI, table; scatter and gauge are "coming soon"). Mapping slots change with the chart type. A live preview (`POST /report-widgets/preview`) shows the chart before you save. |
+| Dashboards | `report-dashboards.php` + `js/report-dashboards.js`, `js/report-dashboard-builder.js` | List, viewer and layout builder (below). |
+
+Shared pieces: `js/reports-render.js` (`ReportsRender.renderWidget(el, payload, opts)` — one renderer for the widget
+builder, the viewer, the builder preview and the home card; handles loading / error / empty / forbidden states),
+`vendor/chart.umd.js` (Chart.js, served locally — no CDN), and the `.rpt-*` rules at the end of `css/style.css`.
+Chart colors come from the theme panel's CSS variables and redraw when the theme changes.
+
+### Dashboards
+
+- **Viewer** — `report-dashboards.php?_d=<code>`. One `GET /report-dashboards/:code/data` call paints every widget; one
+  failing widget only turns its own frame into an error state. Filter values live in the URL, so links can be shared.
+  Cascading filters clear their children and re-fetch their options. "Refresh data" sends `?refresh=1` (cache bypass);
+  auto-refresh does not, and pauses while the tab is hidden.
+- **Builder** — `report-dashboards.php?_d=<code>&edit=1` (list → Layout, or viewer → Edit layout). No drag-drop: each
+  placement has width, height and an order; `grid_x` / `grid_y` are derived by auto-flow (fill left to right, wrap to a
+  new row). Filters (key, label, type, default, required, parent, fixed options or an options source) and per-widget
+  param bindings (`@filter_key` or a fixed value) are edited here. Save is **one** `PATCH /report-dashboards/:id`
+  carrying `grid_columns`, `filters[]` and `widgets[]`, which the API writes in a single transaction. A **Preview**
+  panel embeds the real viewer (`&embed=1`, no sidebar / top bar) and shows the *saved* version.
+- **Pinned dashboard** — "Pin to home" in the viewer (or the chooser on `dashboard.php`) shows that dashboard as a card
+  on the home page. The pin is remembered **in this browser only** (`localStorage`); nothing is stored on the server.
+  The card stays hidden for users who cannot list dashboards.
+
+### Widget chart options
+
+Stored in the widget's free-form `options` JSON (no API change). Set them in the widget builder under
+*Display & limits*:
+
+| Option | Applies to | Meaning |
+|---|---|---|
+| `legend` | line, area, bar, stacked bar, pie, donut | `top` / `bottom` / `right` / `none` |
+| `smooth`, `horizontal` | line / area / bar; bar / stacked bar | smooth curves; sideways bars |
+| `xTitle`, `yTitle` | cartesian | titles of the category and the value axis |
+| `yMin`, `yMax` | cartesian | bounds of the value axis (a set `yMin` stops forcing zero) |
+| `dataLabels` | cartesian, pie, donut | print values on bars, points and slices (off above 60 points) |
+| `height` | cartesian, pie, donut | fixed chart height, 120–1200 px |
+| `sliceColors`, `palette` | pie, donut | `{ "North": "#1a9c6b" }` by label; `["#e5484d", …]` in slice order |
+
+### Permissions (RBAC) in the UI
+
+The API enforces `requirePermission('report-sources' | 'report-widgets' | 'report-dashboards', view|create|edit|delete)`
+on every route. The UI only **hides** buttons the user could not use, through `Reports.access.apply(resource)`, which sets
+`rpt-no-create` / `rpt-no-edit` / `rpt-no-delete` on `<html>`; `style.css` hides the matching actions
+(New, Edit, Layout, on/off, Test, Save params/fields, Clear cache, Delete).
+
+- `SUPERADMIN` sees everything (the API bypasses grants for it too).
+- Other users: the grants come from **`GET /auth/my-permissions`** (added to `ms_master`, see the backend patch). The
+  existing `/master-rbac/.../effective-permissions` route is ADMIN/SUPERADMIN-only, so it cannot be used for this.
+- If `/auth/my-permissions` is missing or fails, the UI **fails open** (buttons stay visible) and the API still answers
+  403. Deploy the endpoint to get the hiding.
+- The "Extra permission resource" on a widget / dashboard adds a second `view` check at runtime; it is not a UI setting.
+
+Grants are managed on the Role Matrix page; the three resources are created by `database/reports_rbac_seed.sql` in the API repo.
+
+### Reports changelog (files)
+
+`report-sources.php/.js`, `report-widgets.php/.js`, `report-dashboards.php/.js`, `report-dashboard-builder.js`,
+`reports-common.js`, `reports-render.js`, `dashboard.php` + `dashboard.js` + `dashboard-pinned.js`, `vendor/chart.umd.js`
+(+ `chart.LICENSE.md`), `css/style.css` (`.rpt-*` block at the end), `sidebar.php` (Reports group). Bump `ASSET_VERSION`
+in `app/config/config.php` whenever you change one of them.
+
+
 # php_admin_node_api

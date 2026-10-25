@@ -482,11 +482,63 @@ const Reports = (function () {
     }
   }
 
+
+  // ---- Access (RBAC hints) ----------------------------------------------------------
+  // UI convenience ONLY: the API enforces requirePermission() on every route. This just hides buttons the user could not use.
+  //   SUPERADMIN            -> everything (the server bypasses grants for it too)
+  //   GET /auth/my-permissions -> the caller's allowed { resourceName, permissionCode } grants
+  //   endpoint missing / failing -> FAIL OPEN (buttons stay visible; the API still answers 403)
+  const access = (function () {
+    let grants = null;      // Set of "resource:code", or null = unknown (fail open)
+    let superadmin = false;
+    let loaded = null;
+
+    function load() {
+      if (loaded) return loaded;
+      loaded = (async () => {
+        const me = Admin.getMe();
+        if (me && me.usertype && me.usertype.code === 'SUPERADMIN') { superadmin = true; return; }
+        try {
+          const res = await Admin.api.get('/auth/my-permissions');
+          const d = res.data || {};
+          if (d.isSuperadmin) { superadmin = true; return; }
+          grants = new Set((d.grants || []).map((g) => `${g.resourceName}:${g.permissionCode}`));
+        } catch (e) {
+          grants = null;
+          if (window.console && console.info) console.info('[reports] could not read my-permissions; showing all actions (the API still enforces).');
+        }
+      })();
+      return loaded;
+    }
+    /** can('report-widgets', 'edit') -> boolean (true while unknown). */
+    const can = (resource, action) => superadmin || grants === null || grants.has(`${resource}:${action}`);
+
+    /** Loads grants, then sets html classes rpt-no-create / rpt-no-edit / rpt-no-delete that the stylesheet uses to hide the matching buttons. */
+    async function apply(resource) {
+      await load();
+      const root = document.documentElement;
+      ['create', 'edit', 'delete'].forEach((a) => root.classList.toggle(`rpt-no-${a}`, !can(resource, a)));
+      return { create: can(resource, 'create'), edit: can(resource, 'edit'), delete: can(resource, 'delete') };
+    }
+    return { load, can, apply };
+  })();
+
+  // ---- Pinned dashboard (per user, per browser) ---------------------------------------
+  // Stored in localStorage only (no API change). Cleared storage / another browser = nothing pinned.
+  const pinned = (function () {
+    const key = () => { const me = Admin.getMe(); return `rpt_pinned_dashboard:${(me && (me.id !== undefined ? me.id : me.username)) || 'anon'}`; };
+    return {
+      get() { try { return localStorage.getItem(key()) || ''; } catch (e) { return ''; } },
+      set(code) { try { localStorage.setItem(key(), String(code)); return true; } catch (e) { return false; } },
+      clear() { try { localStorage.removeItem(key()); } catch (e) { /* ignore */ } },
+    };
+  })();
+
   return {
     API, HTTP_METHODS, AUTH_TYPES, PARAM_TYPES, FIELD_TYPES, FIELD_ROLES, AGGREGATIONS, FIELD_USES, CHART_TYPES,
     chartMeta, chartLabel, chartIcon, labelOf,
     isCode, slugify, parseJsonInput, prettyJson, fmtNumber, fmtMs, fmtBytes, truncate, optionsHtml,
     BUILTIN_TOKENS, findPlaceholders, formErrorsHtml, pagerHtml, renderPager, paramsEditor, optionsToText, textToOptions,
-    activeBadge, internalBadge, stateHtml, errorState, bootPage,
+    activeBadge, internalBadge, stateHtml, errorState, bootPage, access, pinned,
   };
 })();

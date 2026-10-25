@@ -1031,10 +1031,11 @@
 
   async function init() {
     await Admin.requireAuth();
+    const acc = await Reports.access.apply('report-sources');
 
     document.getElementById('srcAuth').innerHTML = Reports.optionsHtml(Reports.AUTH_TYPES, '', { blank: 'All' });
     const newBtn = document.getElementById('btnNewSource');
-    newBtn.hidden = false;
+    newBtn.hidden = !acc.create;
     newBtn.addEventListener('click', () => openFormModal(null));
     document.getElementById('btnRefresh').addEventListener('click', () => loadList(true));
 

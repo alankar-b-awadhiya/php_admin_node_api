@@ -245,7 +245,7 @@
   async function initList() {
     $('dashListView').hidden = false;
     const newBtn = $('btnNewDashboard');
-    newBtn.hidden = false;
+    newBtn.hidden = !Reports.access.can('report-dashboards', 'create');
     newBtn.addEventListener('click', () => openBasics(null));
     $('btnRefresh').addEventListener('click', () => loadList(true));
     const apply = () => {
@@ -284,13 +284,14 @@
     };
 
     // Filter values may arrive in the link before we know which filters exist; keep them all, trim on the first answer.
-    new URLSearchParams(location.search).forEach((v, k) => { if (k !== '_d' && k !== 'refresh' && k !== 'edit') V.values[k] = v; });
+    new URLSearchParams(location.search).forEach((v, k) => { if (k !== '_d' && k !== 'refresh' && k !== 'edit' && k !== 'embed') V.values[k] = v; });
 
     const errList = (err) => (err && Array.isArray(err.errors) ? err.errors.filter((e) => typeof e === 'string' && !/^reason:/i.test(e)) : []);
 
     // ---- URL ------------------------------------------------------------------
     function syncUrl() {
       const q = { _d: code };
+      if (new URLSearchParams(location.search).get('embed') === '1') q.embed = 1;
       Object.entries(V.values).forEach(([k, v]) => { if (v) q[k] = v; });
       try { history.replaceState(null, '', `${location.pathname}${Admin.qs(q)}`); } catch (e) { /* ignore */ }
     }
@@ -661,6 +662,21 @@
       load({ fresh: true });
     });
 
+    // "Pin to home": remembered in this browser (Reports.pinned); the home page shows the pinned dashboard.
+    const pinBtn = $('dvPin');
+    const paintPin = () => {
+      const on = Reports.pinned.get() === code;
+      pinBtn.textContent = on ? 'Unpin from home' : 'Pin to home';
+    };
+    pinBtn.hidden = new URLSearchParams(location.search).get('embed') === '1';
+    paintPin();
+    pinBtn.addEventListener('click', () => {
+      if (Reports.pinned.get() === code) { Reports.pinned.clear(); Admin.toast('Unpinned from the home page.', 'success'); }
+      else if (Reports.pinned.set(code)) Admin.toast('Pinned. It now shows on the home page in this browser.', 'success');
+      else Admin.toast('This browser blocked saving the pin.', 'error');
+      paintPin();
+    });
+
     load({});
   }
 
@@ -670,8 +686,17 @@
 
   async function init() {
     await Admin.requireAuth();
+    const acc = await Reports.access.apply('report-dashboards');
     const code = new URLSearchParams(location.search).get('_d');
-    if (code && new URLSearchParams(location.search).get('edit') === '1') ReportsDashBuilder.mount(code);
+    if (code && new URLSearchParams(location.search).get('edit') === '1') {
+      if (!acc.edit) {
+        $('dashBuilderView').hidden = false;
+        $('dbBody').innerHTML = Reports.stateHtml('forbidden', 'You do not have permission to edit dashboards.', 'Ask an administrator for the “edit” permission on report-dashboards.');
+        $('dbSave').hidden = true; $('dbSaveView').hidden = true;
+        return;
+      }
+      ReportsDashBuilder.mount(code);
+    }
     else if (code) initViewer(code);
     else await initList();
   }
